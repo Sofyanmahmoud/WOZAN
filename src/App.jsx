@@ -418,7 +418,7 @@ function App() {
             {/* Text Entry Section */}
             <div className="relative">
               <h2 className="text-3xl font-black text-white mb-1">Log Meal</h2>
-              <p className="text-slate-400 font-medium mb-6">Type naturally or use the Quick Grid below</p>
+              <p className="text-slate-400 font-medium mb-6">Type naturally or use the Quick Add below</p>
               
               <div className="relative group">
                 <textarea 
@@ -435,45 +435,45 @@ function App() {
               </div>
             </div>
 
-            {/* Quick Select Grid */}
+            {/* Quick Add Section */}
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
-                <h3 className="text-[10px] font-black text-slate-500 tracking-[0.2em] uppercase">Quick Select Grid</h3>
+                <h3 className="text-sm font-black text-white uppercase tracking-widest">Quick Add</h3>
                 <button 
                   onClick={() => {
                     const reset = {};
                     Object.keys(quickQuantities).forEach(k => reset[k] = 0);
                     setQuickQuantities(reset);
                   }}
-                  className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20"
+                  className="text-[10px] font-black text-slate-500 uppercase tracking-widest hover:text-indigo-400 transition-colors"
                 >
-                  Clear Selection
+                  Reset All
                 </button>
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
-                {FOOD_DB.slice(0, 8).map((food) => (
-                  <div key={food.name} className="bg-slate-900 rounded-[2rem] p-4 border border-slate-800 shadow-xl flex flex-col items-center gap-3 group transition-all hover:border-indigo-500/30">
-                    <div className="text-center">
-                      <div className="text-sm font-black text-white leading-tight mb-1">{food.name.split(' (')[0]}</div>
+              <div className="grid grid-cols-2 gap-4">
+                {FOOD_DB.map((food) => (
+                  <div key={food.name} className="bg-slate-900 rounded-[2rem] p-5 border border-slate-800/50 shadow-xl flex flex-col items-center gap-4 group transition-all hover:border-indigo-500/30 relative">
+                    <div className="text-center w-full">
+                      <div className="text-sm font-black text-white leading-tight mb-1 truncate px-1">{food.name.split(' (')[0]}</div>
                       <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">{food.calories} kcal</div>
                     </div>
                     
-                    <div className="flex items-center gap-3 bg-slate-950 p-1.5 rounded-full border border-slate-800">
+                    <div className="flex items-center justify-between w-full bg-slate-950 p-1.5 rounded-full border border-slate-800">
                       <button 
                         onClick={() => updateQuickQty(food.name, -1)}
-                        className="w-10 h-10 flex items-center justify-center rounded-full border-2 border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                        className="w-11 h-11 min-w-[44px] flex items-center justify-center rounded-full border-2 border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-400 transition-all active:scale-90"
                       >
-                        <span className="text-xl font-bold">−</span>
+                        <span className="text-2xl font-light">−</span>
                       </button>
-                      <div className="w-6 text-center font-black text-white text-lg">
+                      <div className="text-lg font-black text-white px-2">
                         {quickQuantities[food.name] || 0}
                       </div>
                       <button 
                         onClick={() => updateQuickQty(food.name, 1)}
-                        className="w-10 h-10 flex items-center justify-center rounded-full border-2 border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                        className="w-11 h-11 min-w-[44px] flex items-center justify-center rounded-full border-2 border-slate-800 text-indigo-500 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all active:scale-90 shadow-lg"
                       >
-                        <span className="text-xl font-bold">+</span>
+                        <span className="text-2xl font-light">+</span>
                       </button>
                     </div>
                   </div>
@@ -481,61 +481,39 @@ function App() {
               </div>
             </div>
 
-            {/* Combined Logging Summary */}
+            {/* Combined Logging Summary (Floating/Sticky Button Area) */}
             {(parsedItems.length > 0 || Object.values(quickQuantities).some(v => v > 0)) && (
-              <div className="bg-slate-900 rounded-[2.5rem] p-6 border border-slate-800 shadow-2xl space-y-5 animate-in slide-in-from-bottom-4 duration-300">
-                <div className="flex items-center justify-between px-2">
-                  <h3 className="text-[10px] font-black text-slate-500 tracking-widest uppercase">Entry Summary</h3>
-                  <div className="bg-indigo-600/20 text-indigo-400 px-3 py-1 rounded-full text-xs font-black">
-                    {Math.round(
-                      parsedItems.reduce((a, b) => a + b.calcCals, 0) + 
-                      [...FOOD_DB, ...customFoods].reduce((a, b) => a + (b.calories * (quickQuantities[b.name] || 0)), 0)
-                    )} kcal Total
+              <div className="fixed bottom-[96px] left-1/2 -translate-x-1/2 w-full max-w-md px-5 z-40 pointer-events-none">
+                <div className="bg-slate-900/95 backdrop-blur-xl rounded-[2.5rem] p-6 border-2 border-indigo-500/30 shadow-[0_20px_50px_rgba(0,0,0,0.6)] space-y-4 pointer-events-auto animate-in slide-in-from-bottom-8 duration-500">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-[10px] font-black text-indigo-400 tracking-widest uppercase italic">Ready to Log</h3>
+                    <div className="text-white font-black text-sm">
+                      {Math.round(
+                        parsedItems.reduce((a, b) => a + b.calcCals, 0) + 
+                        [...FOOD_DB, ...customFoods].reduce((a, b) => a + (b.calories * (quickQuantities[b.name] || 0)), 0)
+                      )} <span className="text-slate-500 font-bold">kcal</span>
+                    </div>
                   </div>
+                  
+                  <button 
+                    onClick={logMeal}
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black py-5 rounded-[2rem] shadow-[0_10px_30px_rgba(79,70,229,0.4)] transition-all flex items-center justify-center gap-3 tracking-widest uppercase text-sm"
+                  >
+                    <Send className="w-5 h-5" /> 
+                    Log {parsedItems.length + Object.values(quickQuantities).filter(v => v > 0).length} Items
+                  </button>
                 </div>
-                
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-                  {parsedItems.map((item, idx) => (
-                    <div key={`parsed-${idx}`} className="flex justify-between items-center bg-slate-950/50 p-4 rounded-[1.5rem] border border-slate-800/50">
-                      <div className="flex items-center gap-3">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                        <div className="text-white font-bold text-sm truncate max-w-[120px]">{item.name}</div>
-                      </div>
-                      <div className="text-right flex items-center gap-4">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase italic">Text Match</div>
-                        <div className="text-white font-black text-sm">{Math.round(item.calcCals)} <span className="text-[9px] text-slate-600">kcal</span></div>
-                      </div>
-                    </div>
-                  ))}
-                  {[...FOOD_DB, ...customFoods].filter(f => (quickQuantities[f.name] || 0) > 0).map((item, idx) => (
-                    <div key={`quick-${idx}`} className="flex justify-between items-center bg-slate-950/50 p-4 rounded-[1.5rem] border border-slate-800/50">
-                      <div className="flex items-center gap-3">
-                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
-                        <div className="text-white font-bold text-sm truncate max-w-[120px]">{item.name}</div>
-                      </div>
-                      <div className="text-right flex items-center gap-4">
-                        <div className="text-[10px] font-bold text-indigo-400 uppercase italic">{quickQuantities[item.name]} portions</div>
-                        <div className="text-white font-black text-sm">{Math.round(item.calories * quickQuantities[item.name])} <span className="text-[9px] text-slate-600">kcal</span></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                <button 
-                  onClick={logMeal}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black py-5 rounded-[2rem] shadow-[0_10px_30px_rgba(79,70,229,0.3)] transition-all flex items-center justify-center gap-3 tracking-widest uppercase text-sm"
-                >
-                  <Send className="w-5 h-5" /> Log Selected Items
-                </button>
               </div>
             )}
             
             {inputText.trim().length > 2 && parsedItems.length === 0 && !Object.values(quickQuantities).some(v => v > 0) && (
               <div className="flex items-center gap-4 text-slate-400 text-sm p-6 bg-slate-900/50 rounded-[2rem] border border-slate-800 border-dashed">
                 <AlertCircle className="w-6 h-6 text-slate-600 shrink-0" />
-                <span>No match. Use the Quick Select grid or try keywords like "chicken".</span>
+                <span>No match. Use "Quick Add" or try keywords like "chicken".</span>
               </div>
             )}
+
+            <div className="h-40"></div> {/* Spacer for sticky button */}
 
             {showSuccess && (
               <div className="fixed top-12 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-6 py-3 rounded-full font-black flex items-center gap-2 shadow-2xl animate-in fade-in slide-in-from-top-8 z-50">
