@@ -57,13 +57,25 @@ function App() {
   // Quick Select State
   const [quickQuantities, setQuickQuantities] = useState({});
 
-  // Initialize quickQuantities when FOOD_DB or customFoods change
+  // Initialize quickQuantities and sync when FOOD_DB or customFoods change
   useEffect(() => {
-    const initial = {};
-    [...FOOD_DB, ...customFoods].forEach(f => {
-      initial[f.name] = 0;
+    setQuickQuantities(prev => {
+      const next = { ...prev };
+      const combined = [...FOOD_DB, ...customFoods];
+      
+      // Add new items
+      combined.forEach(f => {
+        if (next[f.name] === undefined) next[f.name] = 0;
+      });
+
+      // Remove deleted items
+      const combinedNames = combined.map(f => f.name);
+      Object.keys(next).forEach(key => {
+        if (!combinedNames.includes(key)) delete next[key];
+      });
+      
+      return next;
     });
-    setQuickQuantities(initial);
   }, [customFoods]);
 
   const updateQuickQty = (name, delta) => {
@@ -452,7 +464,7 @@ function App() {
               </div>
               
               <div className="grid grid-cols-2 gap-4">
-                {FOOD_DB.map((food) => (
+                {[...FOOD_DB, ...customFoods].map((food) => (
                   <div key={food.name} className="bg-slate-900 rounded-[2rem] p-5 border border-slate-800/50 shadow-xl flex flex-col items-center gap-4 group transition-all hover:border-indigo-500/30 relative">
                     <div className="text-center w-full">
                       <div className="text-sm font-black text-white leading-tight mb-1 truncate px-1">{food.name.split(' (')[0]}</div>
