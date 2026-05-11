@@ -27,7 +27,7 @@ const FOOD_DB = [
   { keywords: ['chicken', 'breast'], name: 'Chicken Breast (100g)', calories: 165, protein: 31, carbs: 0, fats: 3.6, unit: 'g' },
   { keywords: ['rice', 'white'], name: 'White Rice (1 cup)', calories: 205, protein: 4, carbs: 45, fats: 0.4, unit: 'cup' },
   { keywords: ['egg', 'eggs'], name: 'Large Egg (1)', calories: 72, protein: 6, carbs: 0.4, fats: 4.8, unit: 'qty' },
-  { keywords: ['oat', 'oats', 'oatmeal'], name: 'ALMONDS (10)', calories: 70, protein: 5, carbs: 2.5, fats: 6, unit: 'cup' },
+  { keywords: ['almonds', 'ALMONDS'], name: 'ALMONDS 10 ', calories: 70, protein: 5, carbs: 2.5, fats: 6, unit: 'cup' },
   { keywords: ['peanut butter', 'pb'], name: 'Peanut Butter (2 tbsp)', calories: 190, protein: 7, carbs: 8, fats: 16, unit: 'qty' },
   { keywords: ['steak', 'beef'], name: 'Steak (100g)', calories: 271, protein: 26, carbs: 0, fats: 19, unit: 'g' },
   { keywords: ['milk', 'whole'], name: 'Whole Milk (1 cup)', calories: 149, protein: 8, carbs: 12, fats: 8, unit: 'cup' },
