@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Activity, 
-  PlusCircle, 
-  History, 
-  Flame, 
-  Utensils, 
-  Send, 
-  CheckCircle2, 
-  AlertCircle, 
-  Settings, 
-  Trash2, 
-  Database, 
+import {
+  Activity,
+  PlusCircle,
+  History,
+  Flame,
+  Utensils,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Settings,
+  Trash2,
+  Database,
   ShieldAlert,
   ChevronRight,
   Zap,
@@ -20,7 +20,7 @@ import {
 
 // --- CONFIGURATION ---
 const TARGET_CALORIES = 3000;
-const PROTEIN_TARGET = 150; 
+const PROTEIN_TARGET = 150;
 const CARBS_TARGET = 350;
 
 const FOOD_DB = [
@@ -46,7 +46,7 @@ function App() {
     const saved = localStorage.getItem('wozan_custom_db');
     return saved ? JSON.parse(saved) : [];
   });
-  
+
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin'
   const [inputText, setInputText] = useState('');
   const [parsedItems, setParsedItems] = useState([]);
@@ -62,7 +62,7 @@ function App() {
     setQuickQuantities(prev => {
       const next = { ...prev };
       const combined = [...FOOD_DB, ...customFoods];
-      
+
       // Add new items
       combined.forEach(f => {
         if (next[f.name] === undefined) next[f.name] = 0;
@@ -73,7 +73,7 @@ function App() {
       Object.keys(next).forEach(key => {
         if (!combinedNames.includes(key)) delete next[key];
       });
-      
+
       return next;
     });
   }, [customFoods]);
@@ -106,21 +106,21 @@ function App() {
     // Helper to find and extract matches
     const searchInDB = (db, isCustom = false) => {
       db.forEach(food => {
-        const keywords = isCustom 
+        const keywords = isCustom
           ? [food.name.toLowerCase(), ...food.name.toLowerCase().split(' ').filter(w => w.length > 2)]
           : food.keywords;
-        
+
         const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
-        
+
         sortedKeywords.forEach(kw => {
           // Regex to detect: 3 eggs, 2x chicken, 500g rice, 1.5 cup oats
           const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(x|g|ml|cup|cups|scoop|scoops|tbsp)?\\s*${kw}`, 'i');
           const match = processedText.match(regex);
-          
+
           if (match) {
             let qty = parseFloat(match[1]);
             const unitSuffix = match[2]?.toLowerCase();
-            
+
             if (unitSuffix === 'g' && food.name.toLowerCase().includes('(100g)')) {
               qty = qty / 100;
             } else if (unitSuffix === 'g' && !food.name.toLowerCase().includes('(100g)')) {
@@ -187,9 +187,9 @@ function App() {
       }));
 
     const finalItems = [...parsedItems, ...quickSelectItems];
-    
+
     if (finalItems.length === 0) return;
-    
+
     let totalCals = 0, totalP = 0, totalC = 0, totalF = 0;
     finalItems.forEach(item => {
       totalCals += item.calcCals;
@@ -217,12 +217,12 @@ function App() {
     setMeals([newMeal, ...meals]);
     setInputText('');
     setParsedItems([]);
-    
+
     // Reset quick quantities
     const reset = {};
     Object.keys(quickQuantities).forEach(k => reset[k] = 0);
     setQuickQuantities(reset);
-    
+
     setShowSuccess(true);
     setTimeout(() => {
       setShowSuccess(false);
@@ -347,7 +347,7 @@ function App() {
 
   return (
     <div className="bg-slate-950 min-h-screen text-slate-100 font-sans pb-28 selection:bg-indigo-500/30">
-      
+
       {/* Top App Bar */}
       <div className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800/50 p-4 sticky top-0 z-30 flex items-center justify-center shadow-lg">
         <div className="flex items-center gap-2">
@@ -355,23 +355,23 @@ function App() {
             <Activity className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-black tracking-tighter text-white">
-            WOZAN <span className="text-indigo-500">PRO</span>
+            WOZAN <span className="text-indigo-500"></span>
           </h1>
         </div>
       </div>
 
       {/* Main Container */}
       <main className="p-5 max-w-md mx-auto w-full">
-        
+
         {/* VIEW: DASHBOARD */}
         {currentView === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Progress Circle/Card */}
             <div className="bg-slate-900 rounded-[2.5rem] p-8 border border-slate-800 shadow-2xl relative overflow-hidden text-center group">
               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none group-hover:bg-indigo-600/20 transition-colors duration-700"></div>
-              
+
               <div className="text-[10px] font-black text-slate-500 tracking-[0.2em] uppercase mb-4">Daily Surplus Status</div>
-              
+
               <div className="relative inline-block mb-4">
                 <div className="text-7xl font-black text-white tracking-tighter">
                   {stats.calories.toLocaleString()}
@@ -382,9 +382,9 @@ function App() {
               <div className="text-slate-400 font-bold mb-8">
                 of <span className="text-white">{TARGET_CALORIES.toLocaleString()}</span> goal
               </div>
-              
+
               <div className="h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800/50 shadow-inner p-0.5">
-                <div 
+                <div
                   className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 rounded-full transition-all duration-1000 ease-out relative"
                   style={{ width: `${progress}%` }}
                 >
@@ -408,7 +408,7 @@ function App() {
                 <div className="text-2xl font-black text-white">{stats.fats}g</div>
               </div>
             </div>
-            
+
             {/* Mass Builder Advice Section */}
             <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-[2rem] p-5">
               <div className="flex items-center gap-3 mb-2">
@@ -431,9 +431,9 @@ function App() {
             <div className="relative">
               <h2 className="text-3xl font-black text-white mb-1">Log Meal</h2>
               <p className="text-slate-400 font-medium mb-6">Type naturally or use the Quick Add below</p>
-              
+
               <div className="relative group">
-                <textarea 
+                <textarea
                   value={inputText}
                   onChange={handleTextChange}
                   placeholder="e.g. 500g rice and 2x chicken"
@@ -451,7 +451,7 @@ function App() {
             <div className="space-y-4">
               <div className="flex items-center justify-between px-2">
                 <h3 className="text-sm font-black text-white uppercase tracking-widest">Quick Add</h3>
-                <button 
+                <button
                   onClick={() => {
                     const reset = {};
                     Object.keys(quickQuantities).forEach(k => reset[k] = 0);
@@ -462,7 +462,7 @@ function App() {
                   Reset All
                 </button>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 {[...FOOD_DB, ...customFoods].map((food) => (
                   <div key={food.name} className="bg-slate-900 rounded-[2rem] p-5 border border-slate-800/50 shadow-xl flex flex-col items-center gap-4 group transition-all hover:border-indigo-500/30 relative">
@@ -470,9 +470,9 @@ function App() {
                       <div className="text-sm font-black text-white leading-tight mb-1 truncate px-1">{food.name.split(' (')[0]}</div>
                       <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">{food.calories} kcal</div>
                     </div>
-                    
+
                     <div className="flex items-center justify-between w-full bg-slate-950 p-1.5 rounded-full border border-slate-800">
-                      <button 
+                      <button
                         onClick={() => updateQuickQty(food.name, -1)}
                         className="w-11 h-11 min-w-[44px] flex items-center justify-center rounded-full border-2 border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-400 transition-all active:scale-90"
                       >
@@ -481,7 +481,7 @@ function App() {
                       <div className="text-lg font-black text-white px-2">
                         {quickQuantities[food.name] || 0}
                       </div>
-                      <button 
+                      <button
                         onClick={() => updateQuickQty(food.name, 1)}
                         className="w-11 h-11 min-w-[44px] flex items-center justify-center rounded-full border-2 border-slate-800 text-indigo-500 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all active:scale-90 shadow-lg"
                       >
@@ -501,23 +501,23 @@ function App() {
                     <h3 className="text-[10px] font-black text-indigo-400 tracking-widest uppercase italic">Ready to Log</h3>
                     <div className="text-white font-black text-sm">
                       {Math.round(
-                        parsedItems.reduce((a, b) => a + b.calcCals, 0) + 
+                        parsedItems.reduce((a, b) => a + b.calcCals, 0) +
                         [...FOOD_DB, ...customFoods].reduce((a, b) => a + (b.calories * (quickQuantities[b.name] || 0)), 0)
                       )} <span className="text-slate-500 font-bold">kcal</span>
                     </div>
                   </div>
-                  
-                  <button 
+
+                  <button
                     onClick={logMeal}
                     className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black py-5 rounded-[2rem] shadow-[0_10px_30px_rgba(79,70,229,0.4)] transition-all flex items-center justify-center gap-3 tracking-widest uppercase text-sm"
                   >
-                    <Send className="w-5 h-5" /> 
+                    <Send className="w-5 h-5" />
                     Log {parsedItems.length + Object.values(quickQuantities).filter(v => v > 0).length} Items
                   </button>
                 </div>
               </div>
             )}
-            
+
             {inputText.trim().length > 2 && parsedItems.length === 0 && !Object.values(quickQuantities).some(v => v > 0) && (
               <div className="flex items-center gap-4 text-slate-400 text-sm p-6 bg-slate-900/50 rounded-[2rem] border border-slate-800 border-dashed">
                 <AlertCircle className="w-6 h-6 text-slate-600 shrink-0" />
@@ -547,7 +547,7 @@ function App() {
                 {meals.length} Logs
               </div>
             </div>
-            
+
             {meals.length === 0 ? (
               <div className="text-center py-20 text-slate-600 bg-slate-900 rounded-[3rem] border-2 border-slate-800 border-dashed">
                 <History className="w-16 h-16 mx-auto mb-4 opacity-10" />
@@ -577,11 +577,11 @@ function App() {
                       )}
                     </div>
                   </div>
-                  
+
                   {groupedMeals[date].meals.map(meal => (
                     <div key={meal.id} className="bg-slate-900 rounded-[2.5rem] p-6 border border-slate-800 shadow-xl group relative overflow-hidden transition-all hover:border-indigo-500/20">
                       <div className="absolute top-0 right-0 w-1.5 h-full bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                      
+
                       <div className="flex justify-between items-start mb-6">
                         <div className="flex-1 pr-4">
                           <p className="text-white font-bold text-lg leading-tight mb-1">"{meal.rawText}"</p>
@@ -594,20 +594,20 @@ function App() {
                             {meal.items.length > 3 && <span className="text-[9px] font-bold text-slate-600">+{meal.items.length - 3} more</span>}
                           </div>
                         </div>
-                        <button 
+                        <button
                           onClick={() => deleteMeal(meal.id)}
                           className="text-slate-700 hover:text-red-500 bg-slate-950 p-3 rounded-2xl transition-all active:scale-90 shadow-inner"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                      
+
                       {/* Portion Adjustment UI for Today's Logs */}
                       {date === todayString && (
                         <div className="flex items-center justify-between bg-slate-950/50 p-3 rounded-[1.5rem] border border-slate-800 mb-6">
                           <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Portions</div>
                           <div className="flex items-center gap-4">
-                            <button 
+                            <button
                               onClick={() => updateMealPortion(meal.id, -0.5)}
                               className="w-9 h-9 flex items-center justify-center rounded-full border border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
                             >
@@ -616,7 +616,7 @@ function App() {
                             <div className="text-sm font-black text-white w-8 text-center">
                               {meal.portionMultiplier || 1}x
                             </div>
-                            <button 
+                            <button
                               onClick={() => updateMealPortion(meal.id, 0.5)}
                               className="w-9 h-9 flex items-center justify-center rounded-full border border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
                             >
@@ -625,7 +625,7 @@ function App() {
                           </div>
                         </div>
                       )}
-                      
+
                       <div className="flex justify-between items-end border-t border-slate-800/50 pt-5">
                         <div className="flex flex-col gap-1">
                           <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">{meal.time}</div>
@@ -653,7 +653,7 @@ function App() {
               <h2 className="text-3xl font-black text-white mb-1">Food Manager</h2>
               <p className="text-slate-500 font-medium">Customize your smart recognition engine</p>
             </div>
-            
+
             <form onSubmit={handleAddCustomFood} className="bg-slate-900 rounded-[2.5rem] p-8 border border-slate-800 shadow-2xl space-y-6">
               <div className="flex items-center gap-3">
                 <div className="bg-indigo-600/20 p-2 rounded-xl">
@@ -661,13 +661,13 @@ function App() {
                 </div>
                 <h3 className="font-black text-xs uppercase tracking-widest text-indigo-300">Add Custom Entry</h3>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Food Name & Portion</label>
-                  <input 
+                  <input
                     type="text" required
-                    value={newFood.name} onChange={e => setNewFood({...newFood, name: e.target.value})}
+                    value={newFood.name} onChange={e => setNewFood({ ...newFood, name: e.target.value })}
                     placeholder="e.g. Mass Gainer (2 scoops)"
                     className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl px-5 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-all font-bold"
                   />
@@ -676,36 +676,36 @@ function App() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Calories</label>
-                    <input 
+                    <input
                       type="number" required
-                      value={newFood.calories} onChange={e => setNewFood({...newFood, calories: e.target.value})}
+                      value={newFood.calories} onChange={e => setNewFood({ ...newFood, calories: e.target.value })}
                       placeholder="kcal"
                       className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl px-5 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-all font-bold"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-2">Protein (g)</label>
-                    <input 
+                    <input
                       type="number"
-                      value={newFood.protein} onChange={e => setNewFood({...newFood, protein: e.target.value})}
+                      value={newFood.protein} onChange={e => setNewFood({ ...newFood, protein: e.target.value })}
                       placeholder="0"
                       className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl px-5 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-all font-bold"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-[0.2em] mb-2">Carbs (g)</label>
-                    <input 
+                    <input
                       type="number"
-                      value={newFood.carbs} onChange={e => setNewFood({...newFood, carbs: e.target.value})}
+                      value={newFood.carbs} onChange={e => setNewFood({ ...newFood, carbs: e.target.value })}
                       placeholder="0"
                       className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl px-5 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-emerald-500 transition-all font-bold"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-amber-500 uppercase tracking-[0.2em] mb-2">Fats (g)</label>
-                    <input 
+                    <input
                       type="number"
-                      value={newFood.fats} onChange={e => setNewFood({...newFood, fats: e.target.value})}
+                      value={newFood.fats} onChange={e => setNewFood({ ...newFood, fats: e.target.value })}
                       placeholder="0"
                       className="w-full bg-slate-950 border-2 border-slate-800 rounded-2xl px-5 py-4 text-white placeholder-slate-700 focus:outline-none focus:border-amber-500 transition-all font-bold"
                     />
@@ -735,7 +735,7 @@ function App() {
                           </div>
                         </div>
                       </div>
-                      <button 
+                      <button
                         onClick={() => deleteCustomFood(food.id)}
                         className="text-slate-700 hover:text-red-500 p-3 transition-colors active:scale-90"
                       >
@@ -748,7 +748,7 @@ function App() {
             )}
 
             <div className="pt-6">
-              <button 
+              <button
                 onClick={() => {
                   if (window.confirm("Erase all data?")) {
                     setMeals([]);
