@@ -52,8 +52,26 @@ function App() {
   const [parsedItems, setParsedItems] = useState([]);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // Admin State
   const [newFood, setNewFood] = useState({ name: '', calories: '', protein: '', carbs: '', fats: '' });
+
+  // Quick Select State
+  const [quickQuantities, setQuickQuantities] = useState({});
+
+  // Initialize quickQuantities when FOOD_DB or customFoods change
+  useEffect(() => {
+    const initial = {};
+    [...FOOD_DB, ...customFoods].forEach(f => {
+      initial[f.name] = 0;
+    });
+    setQuickQuantities(initial);
+  }, [customFoods]);
+
+  const updateQuickQty = (name, delta) => {
+    setQuickQuantities(prev => ({
+      ...prev,
+      [name]: Math.max(0, (prev[name] || 0) + delta)
+    }));
+  };
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -144,10 +162,24 @@ function App() {
   };
 
   const logMeal = () => {
-    if (parsedItems.length === 0) return;
+    // Combine parsed items from text and items from quick select
+    const quickSelectItems = [...FOOD_DB, ...customFoods]
+      .filter(f => quickQuantities[f.name] > 0)
+      .map(f => ({
+        ...f,
+        quantity: quickQuantities[f.name],
+        calcCals: f.calories * quickQuantities[f.name],
+        calcP: f.protein * quickQuantities[f.name],
+        calcC: f.carbs * quickQuantities[f.name],
+        calcF: f.fats * quickQuantities[f.name]
+      }));
+
+    const finalItems = [...parsedItems, ...quickSelectItems];
+    
+    if (finalItems.length === 0) return;
     
     let totalCals = 0, totalP = 0, totalC = 0, totalF = 0;
-    parsedItems.forEach(item => {
+    finalItems.forEach(item => {
       totalCals += item.calcCals;
       totalP += item.calcP;
       totalC += item.calcC;
@@ -157,27 +189,53 @@ function App() {
     const now = new Date();
     const newMeal = {
       id: Date.now(),
-      rawText: inputText,
+      rawText: inputText || (quickSelectItems.length > 0 ? "Quick Selection" : ""),
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       date: now.toLocaleDateString(),
+      portionMultiplier: 1, // Added for quick adjustment
       totals: {
         calories: Math.round(totalCals),
         protein: Math.round(totalP),
         carbs: Math.round(totalC),
         fats: Math.round(totalF)
       },
-      items: parsedItems
+      items: finalItems
     };
 
     setMeals([newMeal, ...meals]);
     setInputText('');
     setParsedItems([]);
     
+    // Reset quick quantities
+    const reset = {};
+    Object.keys(quickQuantities).forEach(k => reset[k] = 0);
+    setQuickQuantities(reset);
+    
     setShowSuccess(true);
     setTimeout(() => {
       setShowSuccess(false);
       setCurrentView('dashboard');
     }, 1200);
+  };
+
+  const updateMealPortion = (id, delta) => {
+    setMeals(meals.map(m => {
+      if (m.id === id) {
+        const newMultiplier = Math.max(0.5, (m.portionMultiplier || 1) + delta);
+        const factor = newMultiplier / (m.portionMultiplier || 1);
+        return {
+          ...m,
+          portionMultiplier: newMultiplier,
+          totals: {
+            calories: Math.round(m.totals.calories * factor),
+            protein: Math.round(m.totals.protein * factor),
+            carbs: Math.round(m.totals.carbs * factor),
+            fats: Math.round(m.totals.fats * factor),
+          }
+        };
+      }
+      return m;
+    }));
   };
 
   const deleteMeal = (id) => {
@@ -356,50 +414,108 @@ function App() {
 
         {/* VIEW: ADD MEAL */}
         {currentView === 'add' && (
-          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+            {/* Text Entry Section */}
             <div className="relative">
               <h2 className="text-3xl font-black text-white mb-1">Log Meal</h2>
-              <p className="text-slate-400 font-medium mb-6">Type naturally like "3 eggs and oats"</p>
+              <p className="text-slate-400 font-medium mb-6">Type naturally or use the Quick Grid below</p>
               
               <div className="relative group">
                 <textarea 
                   value={inputText}
                   onChange={handleTextChange}
                   placeholder="e.g. 500g rice and 2x chicken"
-                  className="w-full h-44 bg-slate-900 border-2 border-slate-800 rounded-[2.5rem] p-6 text-white placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-all shadow-2xl resize-none text-xl font-medium"
+                  className="w-full h-32 bg-slate-900 border-2 border-slate-800 rounded-[2rem] p-6 text-white placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-all shadow-2xl resize-none text-xl font-medium"
                 />
                 <div className="absolute right-6 bottom-6">
-                  <div className={`p-3 rounded-2xl ${inputText.length > 1 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-600'} transition-all`}>
+                  <div className={`p-3 rounded-2xl ${inputText.length > 1 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-600'} transition-all shadow-lg`}>
                     <Utensils className="w-6 h-6" />
                   </div>
                 </div>
               </div>
             </div>
 
-            {parsedItems.length > 0 && (
-              <div className="bg-slate-900 rounded-[2.5rem] p-6 border border-slate-800 shadow-2xl space-y-4">
+            {/* Quick Select Grid */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-[10px] font-black text-slate-500 tracking-[0.2em] uppercase">Quick Select Grid</h3>
+                <button 
+                  onClick={() => {
+                    const reset = {};
+                    Object.keys(quickQuantities).forEach(k => reset[k] = 0);
+                    setQuickQuantities(reset);
+                  }}
+                  className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20"
+                >
+                  Clear Selection
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                {FOOD_DB.slice(0, 8).map((food) => (
+                  <div key={food.name} className="bg-slate-900 rounded-[2rem] p-4 border border-slate-800 shadow-xl flex flex-col items-center gap-3 group transition-all hover:border-indigo-500/30">
+                    <div className="text-center">
+                      <div className="text-sm font-black text-white leading-tight mb-1">{food.name.split(' (')[0]}</div>
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">{food.calories} kcal</div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 bg-slate-950 p-1.5 rounded-full border border-slate-800">
+                      <button 
+                        onClick={() => updateQuickQty(food.name, -1)}
+                        className="w-10 h-10 flex items-center justify-center rounded-full border-2 border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                      >
+                        <span className="text-xl font-bold">−</span>
+                      </button>
+                      <div className="w-6 text-center font-black text-white text-lg">
+                        {quickQuantities[food.name] || 0}
+                      </div>
+                      <button 
+                        onClick={() => updateQuickQty(food.name, 1)}
+                        className="w-10 h-10 flex items-center justify-center rounded-full border-2 border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                      >
+                        <span className="text-xl font-bold">+</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Combined Logging Summary */}
+            {(parsedItems.length > 0 || Object.values(quickQuantities).some(v => v > 0)) && (
+              <div className="bg-slate-900 rounded-[2.5rem] p-6 border border-slate-800 shadow-2xl space-y-5 animate-in slide-in-from-bottom-4 duration-300">
                 <div className="flex items-center justify-between px-2">
-                  <h3 className="text-[10px] font-black text-slate-500 tracking-widest uppercase">Recognition Engine</h3>
-                  <div className="text-indigo-400 font-black text-sm">{Math.round(parsedItems.reduce((a, b) => a + b.calcCals, 0))} kcal</div>
+                  <h3 className="text-[10px] font-black text-slate-500 tracking-widest uppercase">Entry Summary</h3>
+                  <div className="bg-indigo-600/20 text-indigo-400 px-3 py-1 rounded-full text-xs font-black">
+                    {Math.round(
+                      parsedItems.reduce((a, b) => a + b.calcCals, 0) + 
+                      [...FOOD_DB, ...customFoods].reduce((a, b) => a + (b.calories * (quickQuantities[b.name] || 0)), 0)
+                    )} kcal Total
+                  </div>
                 </div>
                 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                   {parsedItems.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-slate-950/50 p-4 rounded-3xl border border-slate-800/50">
+                    <div key={`parsed-${idx}`} className="flex justify-between items-center bg-slate-950/50 p-4 rounded-[1.5rem] border border-slate-800/50">
                       <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-                        <div>
-                          <div className="text-white font-bold text-sm">{item.name}</div>
-                          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">
-                            {item.quantity.toFixed(1)} unit matched
-                          </div>
-                        </div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                        <div className="text-white font-bold text-sm truncate max-w-[120px]">{item.name}</div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-white font-black text-sm">{Math.round(item.calcCals)} <span className="text-[10px] text-slate-500">kcal</span></div>
-                        <div className="text-[9px] font-bold text-slate-600 uppercase">
-                          {Math.round(item.calcP)}P • {Math.round(item.calcC)}C
-                        </div>
+                      <div className="text-right flex items-center gap-4">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase italic">Text Match</div>
+                        <div className="text-white font-black text-sm">{Math.round(item.calcCals)} <span className="text-[9px] text-slate-600">kcal</span></div>
+                      </div>
+                    </div>
+                  ))}
+                  {[...FOOD_DB, ...customFoods].filter(f => (quickQuantities[f.name] || 0) > 0).map((item, idx) => (
+                    <div key={`quick-${idx}`} className="flex justify-between items-center bg-slate-950/50 p-4 rounded-[1.5rem] border border-slate-800/50">
+                      <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                        <div className="text-white font-bold text-sm truncate max-w-[120px]">{item.name}</div>
+                      </div>
+                      <div className="text-right flex items-center gap-4">
+                        <div className="text-[10px] font-bold text-indigo-400 uppercase italic">{quickQuantities[item.name]} portions</div>
+                        <div className="text-white font-black text-sm">{Math.round(item.calories * quickQuantities[item.name])} <span className="text-[9px] text-slate-600">kcal</span></div>
                       </div>
                     </div>
                   ))}
@@ -409,21 +525,21 @@ function App() {
                   onClick={logMeal}
                   className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black py-5 rounded-[2rem] shadow-[0_10px_30px_rgba(79,70,229,0.3)] transition-all flex items-center justify-center gap-3 tracking-widest uppercase text-sm"
                 >
-                  <Send className="w-5 h-5" /> Confirm Entry
+                  <Send className="w-5 h-5" /> Log Selected Items
                 </button>
               </div>
             )}
             
-            {inputText.trim().length > 2 && parsedItems.length === 0 && (
+            {inputText.trim().length > 2 && parsedItems.length === 0 && !Object.values(quickQuantities).some(v => v > 0) && (
               <div className="flex items-center gap-4 text-slate-400 text-sm p-6 bg-slate-900/50 rounded-[2rem] border border-slate-800 border-dashed">
                 <AlertCircle className="w-6 h-6 text-slate-600 shrink-0" />
-                <span>No match. Try "chicken", "eggs", or add custom foods in Admin.</span>
+                <span>No match. Use the Quick Select grid or try keywords like "chicken".</span>
               </div>
             )}
 
             {showSuccess && (
               <div className="fixed top-12 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-6 py-3 rounded-full font-black flex items-center gap-2 shadow-2xl animate-in fade-in slide-in-from-top-8 z-50">
-                <CheckCircle2 className="w-5 h-5" /> ENTRY SAVED
+                <CheckCircle2 className="w-5 h-5" /> BATCH LOG SUCCESSFUL
               </div>
             )}
           </div>
@@ -473,34 +589,61 @@ function App() {
                   </div>
                   
                   {groupedMeals[date].meals.map(meal => (
-                    <div key={meal.id} className="bg-slate-900 rounded-[2rem] p-6 border border-slate-800 shadow-xl group relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-1 h-full bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <div key={meal.id} className="bg-slate-900 rounded-[2.5rem] p-6 border border-slate-800 shadow-xl group relative overflow-hidden transition-all hover:border-indigo-500/20">
+                      <div className="absolute top-0 right-0 w-1.5 h-full bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                       
                       <div className="flex justify-between items-start mb-6">
-                        <p className="text-white font-bold text-lg leading-tight flex-1 pr-4">"{meal.rawText}"</p>
+                        <div className="flex-1 pr-4">
+                          <p className="text-white font-bold text-lg leading-tight mb-1">"{meal.rawText}"</p>
+                          <div className="flex flex-wrap gap-2">
+                            {meal.items.slice(0, 3).map((it, i) => (
+                              <span key={i} className="text-[9px] font-black bg-slate-950 text-indigo-400/70 px-2 py-0.5 rounded-md border border-slate-800/50 uppercase tracking-tighter">
+                                {it.name.split(' ')[0]}
+                              </span>
+                            ))}
+                            {meal.items.length > 3 && <span className="text-[9px] font-bold text-slate-600">+{meal.items.length - 3} more</span>}
+                          </div>
+                        </div>
                         <button 
                           onClick={() => deleteMeal(meal.id)}
-                          className="text-slate-700 hover:text-red-500 bg-slate-950 p-2.5 rounded-2xl transition-all active:scale-90"
+                          className="text-slate-700 hover:text-red-500 bg-slate-950 p-3 rounded-2xl transition-all active:scale-90 shadow-inner"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                       
+                      {/* Portion Adjustment UI for Today's Logs */}
+                      {date === todayString && (
+                        <div className="flex items-center justify-between bg-slate-950/50 p-3 rounded-[1.5rem] border border-slate-800 mb-6">
+                          <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-2">Portions</div>
+                          <div className="flex items-center gap-4">
+                            <button 
+                              onClick={() => updateMealPortion(meal.id, -0.5)}
+                              className="w-9 h-9 flex items-center justify-center rounded-full border border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                            >
+                              <span className="text-lg font-black">−</span>
+                            </button>
+                            <div className="text-sm font-black text-white w-8 text-center">
+                              {meal.portionMultiplier || 1}x
+                            </div>
+                            <button 
+                              onClick={() => updateMealPortion(meal.id, 0.5)}
+                              className="w-9 h-9 flex items-center justify-center rounded-full border border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white transition-all active:scale-90"
+                            >
+                              <span className="text-lg font-black">+</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      
                       <div className="flex justify-between items-end border-t border-slate-800/50 pt-5">
                         <div className="flex flex-col gap-1">
                           <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">{meal.time}</div>
-                          <div className="flex gap-2">
-                            {meal.items.slice(0, 2).map((it, i) => (
-                              <span key={i} className="text-[9px] font-bold bg-slate-950 text-slate-400 px-2 py-0.5 rounded-md border border-slate-800">
-                                {it.name.split(' ')[0]}
-                              </span>
-                            ))}
-                            {meal.items.length > 2 && <span className="text-[9px] font-bold text-slate-600">+{meal.items.length - 2}</span>}
-                          </div>
+                          <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Surplus Tracked</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-3xl font-black text-indigo-500 leading-none mb-1">{meal.totals.calories}</div>
-                          <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                          <div className="text-4xl font-black text-indigo-500 leading-none mb-1 tracking-tighter">{meal.totals.calories}</div>
+                          <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
                             {meal.totals.protein}P • {meal.totals.carbs}C • {meal.totals.fats}F
                           </div>
                         </div>
