@@ -17,6 +17,7 @@ import {
   Coffee,
   Info
 } from 'lucide-react';
+import { supabase } from './lib/supabase';
 
 // --- CONFIGURATION ---
 const TARGET_CALORIES = 3000;
@@ -38,14 +39,9 @@ const FOOD_DB = [
 
 function App() {
   // --- STATE MANAGEMENT ---
-  const [meals, setMeals] = useState(() => {
-    const saved = localStorage.getItem('wozan_history');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [customFoods, setCustomFoods] = useState(() => {
-    const saved = localStorage.getItem('wozan_custom_db');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [meals, setMeals] = useState([]);
+  const [customFoods, setCustomFoods] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin'
   const [inputText, setInputText] = useState('');
@@ -86,16 +82,38 @@ function App() {
   };
 
   // --- EFFECTS ---
+  // --- CLOUD SYNC (SUPABASE) ---
   useEffect(() => {
-    localStorage.setItem('wozan_history', JSON.stringify(meals));
-  }, [meals]);
+    const fetchData = async () => {
+      setLoading(true);
+      
+      // Fetch Foods
+      const { data: foodsData, error: foodsError } = await supabase
+        .from('foods')
+        .select('*')
+        .order('name', { ascending: true });
+        
+      if (!foodsError) setCustomFoods(foodsData || []);
+
+      // Fetch Meals
+      const { data: mealsData, error: mealsError } = await supabase
+        .from('meals')
+        .select('*')
+        .order('id', { ascending: false });
+        
+      if (!mealsError) setMeals(mealsData || []);
+      
+      setLoading(false);
+    };
+
+    fetchData();
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('wozan_custom_db', JSON.stringify(customFoods));
     if (inputText.trim().length > 1) {
       setParsedItems(calculateFromText(inputText));
     }
-  }, [customFoods]);
+  }, [customFoods, inputText]);
 
   // --- SMART ENGINE ---
   const calculateFromText = (text) => {
@@ -173,7 +191,7 @@ function App() {
     }
   };
 
-  const logMeal = () => {
+  const logMeal = async () => {
     // Combine parsed items from text and items from quick select
     const quickSelectItems = [...FOOD_DB, ...customFoods]
       .filter(f => quickQuantities[f.name] > 0)
@@ -200,11 +218,10 @@ function App() {
 
     const now = new Date();
     const newMeal = {
-      id: Date.now(),
       rawText: inputText || (quickSelectItems.length > 0 ? "Quick Selection" : ""),
       time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       date: now.toLocaleDateString(),
-      portionMultiplier: 1, // Added for quick adjustment
+      portionMultiplier: 1,
       totals: {
         calories: Math.round(totalCals),
         protein: Math.round(totalP),
@@ -214,7 +231,17 @@ function App() {
       items: finalItems
     };
 
-    setMeals([newMeal, ...meals]);
+    const { data, error } = await supabase
+      .from('meals')
+      .insert([newMeal])
+      .select();
+
+    if (error) {
+      console.error("Error logging meal:", error);
+      return;
+    }
+
+    setMeals([data[0], ...meals]);
     setInputText('');
     setParsedItems([]);
 
@@ -250,17 +277,25 @@ function App() {
     }));
   };
 
-  const deleteMeal = (id) => {
+  const deleteMeal = async (id) => {
+    const { error } = await supabase
+      .from('meals')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error("Error deleting meal:", error);
+      return;
+    }
     setMeals(meals.filter(m => m.id !== id));
   };
 
   // --- ADMIN FUNCTIONS ---
-  const handleAddCustomFood = (e) => {
+  const handleAddCustomFood = async (e) => {
     e.preventDefault();
     if (!newFood.name || !newFood.calories) return;
 
     const foodItem = {
-      id: Date.now(),
       name: newFood.name.trim(),
       calories: Number(newFood.calories),
       protein: Number(newFood.protein) || 0,
@@ -268,11 +303,30 @@ function App() {
       fats: Number(newFood.fats) || 0,
     };
 
-    setCustomFoods([foodItem, ...customFoods]);
+    const { data, error } = await supabase
+      .from('foods')
+      .insert([foodItem])
+      .select();
+
+    if (error) {
+      console.error("Error adding food:", error);
+      return;
+    }
+
+    setCustomFoods([data[0], ...customFoods]);
     setNewFood({ name: '', calories: '', protein: '', carbs: '', fats: '' });
   };
 
-  const deleteCustomFood = (id) => {
+  const deleteCustomFood = async (id) => {
+    const { error } = await supabase
+      .from('foods')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error("Error deleting food:", error);
+      return;
+    }
     setCustomFoods(customFoods.filter(f => f.id !== id));
   };
 
@@ -359,6 +413,16 @@ function App() {
           </h1>
         </div>
       </div>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+            <p className="text-indigo-400 font-black text-xs uppercase tracking-[0.2em]">Syncing Cloud...</p>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="p-5 max-w-md mx-auto w-full">
@@ -750,16 +814,12 @@ function App() {
             <div className="pt-6">
               <button
                 onClick={() => {
-                  if (window.confirm("Erase all data?")) {
-                    setMeals([]);
-                    setCustomFoods([]);
-                    localStorage.clear();
-                  }
+                  alert("To reset your account data, please manage your database tables in the Supabase Dashboard.");
                 }}
                 className="w-full flex items-center justify-center gap-3 py-5 rounded-[2rem] border border-red-500/20 bg-red-500/5 text-red-500/60 font-black text-[10px] uppercase tracking-[0.2em] hover:bg-red-500/10 transition-all"
               >
                 <ShieldAlert className="w-4 h-4" />
-                Factory Reset App
+                Cloud Database Info
               </button>
             </div>
           </div>
