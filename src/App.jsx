@@ -222,9 +222,12 @@ function App() {
     });
 
     const now = new Date();
-    const summaryName = inputText.trim() || "Mixed Meal";
+    const todayISO = now.toISOString().split('T')[0];
+    
+    // Exact naming logic requested by user
+    const summaryName = finalItems.length === 1 ? finalItems[0].name : "Mixed Meal";
 
-    const newMeal = {
+    const mealToInsert = {
       food_name: summaryName,
       calories: Math.round(totalCals),
       protein: Math.round(totalP),
@@ -232,15 +235,13 @@ function App() {
       fats: Math.round(totalF),
       items: finalItems,
       raw_text: inputText || (quickSelectItems.length > 0 ? "Quick Selection" : ""),
-      date: now.toLocaleDateString(),
-      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      portionMultiplier: 1
+      date: todayISO
     };
 
     try {
       const { data, error } = await supabase
         .from('meals')
-        .insert([newMeal])
+        .insert([mealToInsert])
         .select();
 
       if (error) {
@@ -357,14 +358,18 @@ function App() {
   };
 
   // --- DASHBOARD CALCULATIONS ---
-  const todayString = new Date().toLocaleDateString();
-  const todaysMeals = meals.filter(meal => meal.date === todayString);
+  const todayISO = new Date().toISOString().split('T')[0];
+  const todaysMeals = meals.filter(meal => {
+    // Compare simple date strings (YYYY-MM-DD)
+    const mealDate = meal.date || (meal.created_at ? meal.created_at.split('T')[0] : '');
+    return mealDate === todayISO;
+  });
 
   const stats = {
-    calories: todaysMeals.reduce((sum, m) => sum + (m.calories !== undefined ? m.calories : (m.totals?.calories || 0)), 0),
-    protein: todaysMeals.reduce((sum, m) => sum + (m.protein !== undefined ? m.protein : (m.totals?.protein || 0)), 0),
-    carbs: todaysMeals.reduce((sum, m) => sum + (m.carbs !== undefined ? m.carbs : (m.totals?.carbs || 0)), 0),
-    fats: todaysMeals.reduce((sum, m) => sum + (m.fats !== undefined ? m.fats : (m.totals?.fats || 0)), 0),
+    calories: todaysMeals.reduce((sum, m) => sum + Number(m.calories || 0), 0),
+    protein: todaysMeals.reduce((sum, m) => sum + Number(m.protein || 0), 0),
+    carbs: todaysMeals.reduce((sum, m) => sum + Number(m.carbs || 0), 0),
+    fats: todaysMeals.reduce((sum, m) => sum + Number(m.fats || 0), 0),
   };
 
   const progress = Math.min((stats.calories / TARGET_CALORIES) * 100, 100);
@@ -409,7 +414,8 @@ function App() {
 
   // --- HISTORY GROUPING ---
   const groupedMeals = meals.reduce((acc, meal) => {
-    const dateKey = meal.date || new Date(meal.id).toLocaleDateString();
+    const dateKey = meal.date || (meal.created_at ? meal.created_at.split('T')[0] : 'Unknown Date');
+    
     if (!acc[dateKey]) {
       acc[dateKey] = {
         meals: [],
@@ -418,7 +424,7 @@ function App() {
       };
     }
     acc[dateKey].meals.push(meal);
-    const mealCals = meal.calories !== undefined ? meal.calories : (meal.totals?.calories || 0);
+    const mealCals = Number(meal.calories || 0);
     acc[dateKey].totalCals += mealCals;
     acc[dateKey].metGoal = acc[dateKey].totalCals >= TARGET_CALORIES;
     return acc;
@@ -649,7 +655,7 @@ function App() {
                 <div key={date} className="space-y-4">
                   <div className="flex items-center justify-between sticky top-[72px] bg-slate-950/95 backdrop-blur-md py-3 z-20 border-b border-slate-900">
                     <h3 className="text-sm font-black text-white uppercase tracking-widest">
-                      {date === todayString ? 'Today' : date}
+                      {date === todayISO ? 'Today' : date}
                     </h3>
                     <div className="flex items-center gap-2">
                       <div className="text-right">
@@ -731,7 +737,9 @@ function App() {
 
                       <div className="flex justify-between items-end border-t border-slate-800/50 pt-5">
                         <div className="flex flex-col gap-1">
-                          <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">{meal.time}</div>
+                          <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">
+                            {meal.time || (meal.created_at ? new Date(meal.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
+                          </div>
                           <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Surplus Tracked</div>
                         </div>
                         <div className="text-right">
