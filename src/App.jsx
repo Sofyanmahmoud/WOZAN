@@ -86,22 +86,27 @@ function App() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      
-      // Fetch Foods
-      const { data: foodsData, error: foodsError } = await supabase
-        .from('foods')
-        .select('*')
-        .order('name', { ascending: true });
-        
-      if (!foodsError) setCustomFoods(foodsData || []);
+      try {
+        // Fetch Foods
+        const { data: foodsData, error: foodsError } = await supabase
+          .from('foods')
+          .select('*')
+          .order('name', { ascending: true });
+          
+        if (foodsError) console.error("PGRST Error (foods):", foodsError);
+        else setCustomFoods(foodsData || []);
 
-      // Fetch Meals
-      const { data: mealsData, error: mealsError } = await supabase
-        .from('meals')
-        .select('*')
-        .order('id', { ascending: false });
-        
-      if (!mealsError) setMeals(mealsData || []);
+        // Fetch Meals
+        const { data: mealsData, error: mealsError } = await supabase
+          .from('meals')
+          .select('*')
+          .order('id', { ascending: false });
+          
+        if (mealsError) console.error("PGRST Error (meals):", mealsError);
+        else setMeals(mealsData || []);
+      } catch (err) {
+        console.error("Unexpected fetch error:", err);
+      }
       
       setLoading(false);
     };
@@ -217,44 +222,49 @@ function App() {
     });
 
     const now = new Date();
+    const summaryName = inputText.trim() || "Mixed Meal";
+
     const newMeal = {
-      rawText: inputText || (quickSelectItems.length > 0 ? "Quick Selection" : ""),
-      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      food_name: summaryName,
+      calories: Math.round(totalCals),
+      protein: Math.round(totalP),
+      carbs: Math.round(totalC),
+      fats: Math.round(totalF),
+      items: finalItems,
+      raw_text: inputText || (quickSelectItems.length > 0 ? "Quick Selection" : ""),
       date: now.toLocaleDateString(),
-      portionMultiplier: 1,
-      totals: {
-        calories: Math.round(totalCals),
-        protein: Math.round(totalP),
-        carbs: Math.round(totalC),
-        fats: Math.round(totalF)
-      },
-      items: finalItems
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      portionMultiplier: 1
     };
 
-    const { data, error } = await supabase
-      .from('meals')
-      .insert([newMeal])
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from('meals')
+        .insert([newMeal])
+        .select();
 
-    if (error) {
-      console.error("Error logging meal:", error);
-      return;
+      if (error) {
+        console.error("PGRST Error (logMeal):", error);
+        return;
+      }
+
+      setMeals([data[0], ...meals]);
+      setInputText('');
+      setParsedItems([]);
+
+      // Reset quick quantities
+      const reset = {};
+      Object.keys(quickQuantities).forEach(k => reset[k] = 0);
+      setQuickQuantities(reset);
+
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setCurrentView('dashboard');
+      }, 1200);
+    } catch (err) {
+      console.error("Unexpected logMeal error:", err);
     }
-
-    setMeals([data[0], ...meals]);
-    setInputText('');
-    setParsedItems([]);
-
-    // Reset quick quantities
-    const reset = {};
-    Object.keys(quickQuantities).forEach(k => reset[k] = 0);
-    setQuickQuantities(reset);
-
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-      setCurrentView('dashboard');
-    }, 1200);
   };
 
   const updateMealPortion = (id, delta) => {
@@ -265,12 +275,16 @@ function App() {
         return {
           ...m,
           portionMultiplier: newMultiplier,
-          totals: {
+          calories: m.calories !== undefined ? Math.round(m.calories * factor) : undefined,
+          protein: m.protein !== undefined ? Math.round(m.protein * factor) : undefined,
+          carbs: m.carbs !== undefined ? Math.round(m.carbs * factor) : undefined,
+          fats: m.fats !== undefined ? Math.round(m.fats * factor) : undefined,
+          totals: m.totals ? {
             calories: Math.round(m.totals.calories * factor),
             protein: Math.round(m.totals.protein * factor),
             carbs: Math.round(m.totals.carbs * factor),
             fats: Math.round(m.totals.fats * factor),
-          }
+          } : undefined
         };
       }
       return m;
@@ -278,16 +292,20 @@ function App() {
   };
 
   const deleteMeal = async (id) => {
-    const { error } = await supabase
-      .from('meals')
-      .delete()
-      .eq('id', id);
+    try {
+      const { error } = await supabase
+        .from('meals')
+        .delete()
+        .eq('id', id);
 
-    if (error) {
-      console.error("Error deleting meal:", error);
-      return;
+      if (error) {
+        console.error("PGRST Error (deleteMeal):", error);
+        return;
+      }
+      setMeals(meals.filter(m => m.id !== id));
+    } catch (err) {
+      console.error("Unexpected deleteMeal error:", err);
     }
-    setMeals(meals.filter(m => m.id !== id));
   };
 
   // --- ADMIN FUNCTIONS ---
@@ -303,31 +321,39 @@ function App() {
       fats: Number(newFood.fats) || 0,
     };
 
-    const { data, error } = await supabase
-      .from('foods')
-      .insert([foodItem])
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from('foods')
+        .insert([foodItem])
+        .select();
 
-    if (error) {
-      console.error("Error adding food:", error);
-      return;
+      if (error) {
+        console.error("PGRST Error (addFood):", error);
+        return;
+      }
+
+      setCustomFoods([data[0], ...customFoods]);
+      setNewFood({ name: '', calories: '', protein: '', carbs: '', fats: '' });
+    } catch (err) {
+      console.error("Unexpected addFood error:", err);
     }
-
-    setCustomFoods([data[0], ...customFoods]);
-    setNewFood({ name: '', calories: '', protein: '', carbs: '', fats: '' });
   };
 
   const deleteCustomFood = async (id) => {
-    const { error } = await supabase
-      .from('foods')
-      .delete()
-      .eq('id', id);
+    try {
+      const { error } = await supabase
+        .from('foods')
+        .delete()
+        .eq('id', id);
 
-    if (error) {
-      console.error("Error deleting food:", error);
-      return;
+      if (error) {
+        console.error("PGRST Error (deleteFood):", error);
+        return;
+      }
+      setCustomFoods(customFoods.filter(f => f.id !== id));
+    } catch (err) {
+      console.error("Unexpected deleteFood error:", err);
     }
-    setCustomFoods(customFoods.filter(f => f.id !== id));
   };
 
   // --- DASHBOARD CALCULATIONS ---
@@ -335,10 +361,10 @@ function App() {
   const todaysMeals = meals.filter(meal => meal.date === todayString);
 
   const stats = {
-    calories: todaysMeals.reduce((sum, m) => sum + m.totals.calories, 0),
-    protein: todaysMeals.reduce((sum, m) => sum + m.totals.protein, 0),
-    carbs: todaysMeals.reduce((sum, m) => sum + m.totals.carbs, 0),
-    fats: todaysMeals.reduce((sum, m) => sum + m.totals.fats, 0),
+    calories: todaysMeals.reduce((sum, m) => sum + (m.calories !== undefined ? m.calories : (m.totals?.calories || 0)), 0),
+    protein: todaysMeals.reduce((sum, m) => sum + (m.protein !== undefined ? m.protein : (m.totals?.protein || 0)), 0),
+    carbs: todaysMeals.reduce((sum, m) => sum + (m.carbs !== undefined ? m.carbs : (m.totals?.carbs || 0)), 0),
+    fats: todaysMeals.reduce((sum, m) => sum + (m.fats !== undefined ? m.fats : (m.totals?.fats || 0)), 0),
   };
 
   const progress = Math.min((stats.calories / TARGET_CALORIES) * 100, 100);
@@ -392,7 +418,8 @@ function App() {
       };
     }
     acc[dateKey].meals.push(meal);
-    acc[dateKey].totalCals += meal.totals.calories;
+    const mealCals = meal.calories !== undefined ? meal.calories : (meal.totals?.calories || 0);
+    acc[dateKey].totalCals += mealCals;
     acc[dateKey].metGoal = acc[dateKey].totalCals >= TARGET_CALORIES;
     return acc;
   }, {});
@@ -648,15 +675,27 @@ function App() {
 
                       <div className="flex justify-between items-start mb-6">
                         <div className="flex-1 pr-4">
-                          <p className="text-white font-bold text-lg leading-tight mb-1">"{meal.rawText}"</p>
-                          <div className="flex flex-wrap gap-2">
-                            {meal.items.slice(0, 3).map((it, i) => (
-                              <span key={i} className="text-[9px] font-black bg-slate-950 text-indigo-400/70 px-2 py-0.5 rounded-md border border-slate-800/50 uppercase tracking-tighter">
-                                {it.name.split(' ')[0]}
-                              </span>
-                            ))}
-                            {meal.items.length > 3 && <span className="text-[9px] font-bold text-slate-600">+{meal.items.length - 3} more</span>}
-                          </div>
+                          <p className="text-white font-bold text-lg leading-tight mb-1">{meal.food_name || meal.rawText || meal.raw_text || "Meal"}</p>
+                          
+                          {meal.items && meal.items.length > 1 ? (
+                            <div className="flex flex-col gap-1.5 mt-2">
+                              {meal.items.map((it, i) => (
+                                <div key={i} className="flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-300 flex-1 truncate pr-2">• {it.quantity}x {it.name.split(' (')[0]}</span>
+                                  <span className="text-indigo-400 font-bold bg-slate-950 px-1.5 rounded">{Math.round(it.calcCals)} kcal</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {meal.items && meal.items.slice(0, 3).map((it, i) => (
+                                <span key={i} className="text-[9px] font-black bg-slate-950 text-indigo-400/70 px-2 py-0.5 rounded-md border border-slate-800/50 uppercase tracking-tighter">
+                                  {it.name.split(' ')[0]}
+                                </span>
+                              ))}
+                              {meal.items && meal.items.length > 3 && <span className="text-[9px] font-bold text-slate-600">+{meal.items.length - 3} more</span>}
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={() => deleteMeal(meal.id)}
@@ -696,9 +735,9 @@ function App() {
                           <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Surplus Tracked</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-4xl font-black text-indigo-500 leading-none mb-1 tracking-tighter">{meal.totals.calories}</div>
+                          <div className="text-4xl font-black text-indigo-500 leading-none mb-1 tracking-tighter">{meal.calories !== undefined ? meal.calories : (meal.totals?.calories || 0)}</div>
                           <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                            {meal.totals.protein}P • {meal.totals.carbs}C • {meal.totals.fats}F
+                            {meal.protein !== undefined ? meal.protein : (meal.totals?.protein || 0)}P • {meal.carbs !== undefined ? meal.carbs : (meal.totals?.carbs || 0)}C • {meal.fats !== undefined ? meal.fats : (meal.totals?.fats || 0)}F
                           </div>
                         </div>
                       </div>
