@@ -294,18 +294,29 @@ function App() {
 
   const deleteMeal = async (id) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('meals')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select();
 
       if (error) {
         console.error("PGRST Error (deleteMeal):", error);
+        alert(`Failed to delete meal: ${error.message || JSON.stringify(error)}`);
         return;
       }
+
+      if (!data || data.length === 0) {
+        console.error("Delete failed: No rows were returned (Possible RLS issue or incorrect ID).");
+        alert("Delete failed: No matching record found in the database. You might not have permission or it was already deleted.");
+        return;
+      }
+
+      // Sync Check: Only remove from local state after confirming successful DB deletion
       setMeals(meals.filter(m => m.id !== id));
     } catch (err) {
       console.error("Unexpected deleteMeal error:", err);
+      alert(`Unexpected error deleting meal: ${err.message || String(err)}`);
     }
   };
 
