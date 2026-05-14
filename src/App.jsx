@@ -20,6 +20,8 @@ import {
 import { supabase } from './lib/supabase';
 
 // --- CONFIGURATION ---
+const todayString = new Date().toISOString().split('T')[0];
+
 const TARGET_CALORIES = 3000;
 const PROTEIN_TARGET = 150;
 const CARBS_TARGET = 350;
@@ -358,12 +360,11 @@ function App() {
   };
 
   // --- DASHBOARD CALCULATIONS ---
-  const todayISO = new Date().toISOString().split('T')[0];
-  const todaysMeals = meals.filter(meal => {
+  const todaysMeals = Array.isArray(meals) ? meals.filter(meal => {
     // Compare simple date strings (YYYY-MM-DD)
     const mealDate = meal.date || (meal.created_at ? meal.created_at.split('T')[0] : '');
-    return mealDate === todayISO;
-  });
+    return mealDate === todayString;
+  }) : [];
 
   const stats = {
     calories: todaysMeals.reduce((sum, m) => sum + Number(m.calories || 0), 0),
@@ -413,7 +414,7 @@ function App() {
   const currentAdvice = getMassBuilderAdvice();
 
   // --- HISTORY GROUPING ---
-  const groupedMeals = meals.reduce((acc, meal) => {
+  const groupedMeals = Array.isArray(meals) ? meals.reduce((acc, meal) => {
     const dateKey = meal.date || (meal.created_at ? meal.created_at.split('T')[0] : 'Unknown Date');
     
     if (!acc[dateKey]) {
@@ -428,7 +429,7 @@ function App() {
     acc[dateKey].totalCals += mealCals;
     acc[dateKey].metGoal = acc[dateKey].totalCals >= TARGET_CALORIES;
     return acc;
-  }, {});
+  }, {}) : {};
 
   const dateKeys = Object.keys(groupedMeals).sort((a, b) => new Date(b) - new Date(a));
 
@@ -655,7 +656,7 @@ function App() {
                 <div key={date} className="space-y-4">
                   <div className="flex items-center justify-between sticky top-[72px] bg-slate-950/95 backdrop-blur-md py-3 z-20 border-b border-slate-900">
                     <h3 className="text-sm font-black text-white uppercase tracking-widest">
-                      {date === todayISO ? 'Today' : date}
+                      {date === todayString ? 'Today' : date}
                     </h3>
                     <div className="flex items-center gap-2">
                       <div className="text-right">
