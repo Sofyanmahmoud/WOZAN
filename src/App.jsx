@@ -29,7 +29,7 @@ const CARBS_TARGET = 350;
 const FOOD_DB = [
   { keywords: ['chicken', 'breast'], name: 'Chicken Breast (100g)', calories: 165, protein: 31, carbs: 0, fats: 3.6, unit: 'g' },
   { keywords: ['rice', 'white'], name: 'White Rice (1 cup)', calories: 205, protein: 4, carbs: 45, fats: 0.4, unit: 'cup' },
-  { keywords: ['egg', 'eggs'], name: 'Large Egg (1)', calories: 72, protein: 6, carbs: 0.4, fats: 4.8, unit: 'qty' },
+  { keywords: ['egg', 'eggs'], name: 'Egg', calories: 72, protein: 6, carbs: 0.4, fats: 4.8, unit: 'qty' },
   { keywords: ['almonds', 'ALMONDS'], name: 'ALMONDS 10 ', calories: 70, protein: 5, carbs: 2.5, fats: 6, unit: 'cup' },
   { keywords: ['peanut butter', 'pb'], name: 'Peanut Butter (2 tbsp)', calories: 190, protein: 7, carbs: 8, fats: 16, unit: 'qty' },
   { keywords: ['steak', 'beef'], name: 'Steak (100g)', calories: 271, protein: 26, carbs: 0, fats: 19, unit: 'g' },
@@ -94,7 +94,7 @@ function App() {
           .from('foods')
           .select('*')
           .order('name', { ascending: true });
-          
+
         if (foodsError) console.error("PGRST Error (foods):", foodsError);
         else setCustomFoods(foodsData || []);
 
@@ -103,13 +103,13 @@ function App() {
           .from('meals')
           .select('*')
           .order('id', { ascending: false });
-          
+
         if (mealsError) console.error("PGRST Error (meals):", mealsError);
         else setMeals(mealsData || []);
       } catch (err) {
         console.error("Unexpected fetch error:", err);
       }
-      
+
       setLoading(false);
     };
 
@@ -225,7 +225,7 @@ function App() {
 
     const now = new Date();
     const todayISO = now.toISOString().split('T')[0];
-    
+
     // Exact naming logic requested by user
     const summaryName = finalItems.length === 1 ? finalItems[0].name : "Mixed Meal";
 
@@ -416,7 +416,7 @@ function App() {
   // --- HISTORY GROUPING ---
   const groupedMeals = Array.isArray(meals) ? meals.reduce((acc, meal) => {
     const dateKey = meal.date || (meal.created_at ? meal.created_at.split('T')[0] : 'Unknown Date');
-    
+
     if (!acc[dateKey]) {
       acc[dateKey] = {
         meals: [],
@@ -683,7 +683,7 @@ function App() {
                       <div className="flex justify-between items-start mb-6">
                         <div className="flex-1 pr-4">
                           <p className="text-white font-bold text-lg leading-tight mb-1">{meal.food_name || meal.rawText || meal.raw_text || "Meal"}</p>
-                          
+
                           {meal.items && meal.items.length > 1 ? (
                             <div className="flex flex-col gap-1.5 mt-2">
                               {meal.items.map((it, i) => (
