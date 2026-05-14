@@ -353,18 +353,28 @@ function App() {
 
   const deleteCustomFood = async (id) => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('foods')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select();
 
       if (error) {
         console.error("PGRST Error (deleteFood):", error);
+        alert(`Failed to delete custom food: ${error.message || JSON.stringify(error)}`);
         return;
       }
+
+      if (!data || data.length === 0) {
+        console.error("Delete failed: No rows were returned (Possible RLS issue or incorrect ID).");
+        alert("Delete failed: No matching record found in the database. You might not have permission or it was already deleted.");
+        return;
+      }
+
       setCustomFoods(customFoods.filter(f => f.id !== id));
     } catch (err) {
       console.error("Unexpected deleteFood error:", err);
+      alert(`Unexpected error deleting food: ${err.message || String(err)}`);
     }
   };
 
