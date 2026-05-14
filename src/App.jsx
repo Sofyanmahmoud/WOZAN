@@ -33,10 +33,8 @@ const FOOD_DB = [
   { keywords: ['almonds', 'ALMONDS'], name: 'ALMONDS 10 ', calories: 70, protein: 5, carbs: 2.5, fats: 6, unit: 'cup' },
   { keywords: ['peanut butter', 'pb'], name: 'Peanut Butter (2 tbsp)', calories: 190, protein: 7, carbs: 8, fats: 16, unit: 'qty' },
   { keywords: ['steak', 'beef'], name: 'Steak (100g)', calories: 271, protein: 26, carbs: 0, fats: 19, unit: 'g' },
-  { keywords: ['milk', 'whole'], name: 'Whole Milk (1 cup)', calories: 149, protein: 8, carbs: 12, fats: 8, unit: 'cup' },
   { keywords: ['banana', 'bananas'], name: 'Banana (1 medium)', calories: 105, protein: 1.3, carbs: 27, fats: 0.3, unit: 'qty' },
   { keywords: ['pasta', 'spaghetti'], name: 'Pasta (1 cup cooked)', calories: 220, protein: 8, carbs: 43, fats: 1.3, unit: 'cup' },
-  { keywords: ['shake', 'whey'], name: 'Protein Shake (2 scoop)', calories: 400, protein: 42, carbs: 60, fats: 2.5, unit: 'qty' },
 ];
 
 function App() {
