@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Activity,
   PlusCircle,
@@ -395,42 +395,107 @@ function App() {
   const progress = Math.min((stats.calories / TARGET_CALORIES) * 100, 100);
 
   // --- ADVICE SYSTEM ---
-  const getMassBuilderAdvice = () => {
+  const dynamicAdvice = useMemo(() => {
     const hour = new Date().getHours();
-    const adviceList = [];
+    
+    // Calculate fat limit implicitly if not defined:
+    const FAT_TARGET = Math.round((TARGET_CALORIES - (PROTEIN_TARGET * 4) - (CARBS_TARGET * 4)) / 9) || 100;
+    
+    // Rule C (On Track)
+    if (Math.abs(TARGET_CALORIES - stats.calories) <= 100) {
+      return {
+        text: "Perfect execution today! Your macros are dialed in for recovery.",
+        icon: <CheckCircle2 className="w-5 h-5 text-indigo-400" />
+      };
+    }
 
-    if (stats.protein < 100) {
-      adviceList.push({
+    // Rule A (Calorie Deficit)
+    if (TARGET_CALORIES - stats.calories > 500 && hour >= 18) {
+      let highestCalFood = null;
+      let maxCals = -1;
+      const allFoods = [...FOOD_DB, ...customFoods];
+      for (const f of allFoods) {
+        if (f.calories > maxCals) {
+          maxCals = f.calories;
+          highestCalFood = f;
+        }
+      }
+      const foodName = highestCalFood ? highestCalFood.name.split(' (')[0] : 'Peanut Butter';
+      return {
+        text: `You have room to grow! Consider adding a portion of ${foodName} to hit your target.`,
+        icon: <Coffee className="w-5 h-5 text-amber-400" />
+      };
+    }
+
+    // Rule B (Macro Mismatch)
+    if (stats.fats >= (FAT_TARGET * 0.8) && stats.protein < PROTEIN_TARGET * 0.8) {
+      return {
+        text: "Macro Alert: You're hitting your fat limits. Focus on clean protein like Chicken Breast for the rest of the day.",
+        icon: <AlertCircle className="w-5 h-5 text-rose-400" />
+      };
+    }
+
+    // Fallback Advice
+    if (stats.protein < PROTEIN_TARGET * 0.8) {
+      return {
         text: "Eat some Steak or a Protein Shake to hit your muscle recovery goal.",
         icon: <Zap className="w-5 h-5 text-indigo-400" />
-      });
+      };
     }
 
-    if (stats.calories < 2000 && hour >= 18) {
-      adviceList.push({
-        text: "Energy dense snack needed—add 2 tablespoons of Peanut Butter.",
-        icon: <Coffee className="w-5 h-5 text-amber-400" />
-      });
-    }
-
-    if (stats.carbs < 200) {
-      adviceList.push({
+    if (stats.carbs < CARBS_TARGET * 0.8) {
+      return {
         text: "Add Oats or Rice to your next meal for training energy.",
         icon: <Flame className="w-5 h-5 text-emerald-400" />
-      });
+      }
     }
 
-    if (adviceList.length === 0) {
-      adviceList.push({
-        text: "You're on track! Keep hitting those macros for consistent gains.",
-        icon: <CheckCircle2 className="w-5 h-5 text-indigo-400" />
-      });
+    return {
+      text: "You're on track! Keep hitting those macros for consistent gains.",
+      icon: <CheckCircle2 className="w-5 h-5 text-indigo-400" />
+    };
+  }, [stats.calories, stats.protein, stats.carbs, stats.fats, customFoods]);
+
+  const currentAdvice = dynamicAdvice;
+
+  // --- STREAK COUNTER ---
+  const streakCount = useMemo(() => {
+    if (!Array.isArray(meals) || meals.length === 0) return 0;
+    
+    const uniqueDates = [...new Set(meals.map(m => m.date || (m.created_at ? m.created_at.split('T')[0] : '')))]
+      .filter(Boolean)
+      .sort((a, b) => new Date(b) - new Date(a));
+
+    const todayDate = new Date();
+    // Use local time for dates to avoid timezone shifts
+    const offset = todayDate.getTimezoneOffset()
+    todayDate.setMinutes(todayDate.getMinutes() - offset);
+    const todayStr = todayDate.toISOString().split('T')[0];
+    
+    let streak = 0;
+    let currentDate = new Date(todayDate);
+    
+    if (!uniqueDates.includes(todayStr)) {
+        const yesterdayDate = new Date(todayDate);
+        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+        const yesterdayStr = yesterdayDate.toISOString().split('T')[0];
+        if (!uniqueDates.includes(yesterdayStr)) {
+            return 0;
+        }
+        currentDate = yesterdayDate;
     }
 
-    return adviceList[0];
-  };
-
-  const currentAdvice = getMassBuilderAdvice();
+    while (true) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        if (uniqueDates.includes(dateStr)) {
+            streak++;
+            currentDate.setDate(currentDate.getDate() - 1);
+        } else {
+            break;
+        }
+    }
+    return streak;
+  }, [meals]);
 
   // --- HISTORY GROUPING ---
   const groupedMeals = Array.isArray(meals) ? meals.reduce((acc, meal) => {
@@ -456,7 +521,7 @@ function App() {
     <div className="bg-slate-950 min-h-screen text-slate-100 font-sans pb-28 selection:bg-indigo-500/30">
 
       {/* Top App Bar */}
-      <div className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800/50 p-4 sticky top-0 z-30 flex items-center justify-center shadow-lg">
+      <div className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800/50 p-4 sticky top-0 z-30 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-2">
           <div className="bg-indigo-600 p-1.5 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.5)]">
             <Activity className="w-5 h-5 text-white" />
@@ -465,6 +530,23 @@ function App() {
             WOZAN <span className="text-indigo-500"></span>
           </h1>
         </div>
+        
+        {/* Streak Counter Badge */}
+        {currentView === 'dashboard' && (
+          <div className={`px-3 py-1.5 rounded-full border text-xs font-black tracking-widest uppercase flex items-center gap-1.5 transition-all ${streakCount > 0 ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : 'bg-slate-800/50 border-slate-700 text-slate-400'}`}>
+            {streakCount > 0 ? (
+              <>
+                <Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
+                {streakCount} Day Streak
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5 text-slate-500" />
+                Start a Streak Today!
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Loading Overlay */}
