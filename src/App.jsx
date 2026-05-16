@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   Activity,
   PlusCircle,
@@ -47,6 +48,7 @@ function App() {
   const [inputText, setInputText] = useState('');
   const [parsedItems, setParsedItems] = useState([]);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isParsingAI, setIsParsingAI] = useState(false);
 
   const [newFood, setNewFood] = useState({ name: '', calories: '', protein: '', carbs: '', fats: '' });
 
@@ -114,89 +116,103 @@ function App() {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    if (inputText.trim().length > 1) {
-      setParsedItems(calculateFromText(inputText));
-    }
-  }, [customFoods, inputText]);
-
-  // --- SMART ENGINE ---
-  const calculateFromText = (text) => {
-    const lowerText = text.toLowerCase();
-    let found = [];
-    let processedText = lowerText;
-
-    // Helper to find and extract matches
-    const searchInDB = (db, isCustom = false) => {
-      db.forEach(food => {
-        const keywords = isCustom
-          ? [food.name.toLowerCase(), ...food.name.toLowerCase().split(' ').filter(w => w.length > 2)]
-          : food.keywords;
-
-        const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
-
-        sortedKeywords.forEach(kw => {
-          // Regex to detect: 3 eggs, 2x chicken, 500g rice, 1.5 cup oats
-          const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(x|g|ml|cup|cups|scoop|scoops|tbsp)?\\s*${kw}`, 'i');
-          const match = processedText.match(regex);
-
-          if (match) {
-            let qty = parseFloat(match[1]);
-            const unitSuffix = match[2]?.toLowerCase();
-
-            if (unitSuffix === 'g' && food.name.toLowerCase().includes('(100g)')) {
-              qty = qty / 100;
-            } else if (unitSuffix === 'g' && !food.name.toLowerCase().includes('(100g)')) {
-              qty = qty / 100;
-            }
-
-            if (!found.some(item => item.name === food.name)) {
-              found.push({
-                ...food,
-                quantity: qty,
-                calcCals: food.calories * qty,
-                calcP: food.protein * qty,
-                calcC: food.carbs * qty,
-                calcF: food.fats * qty
-              });
-              processedText = processedText.replace(match[0], '');
-            }
-          } else if (processedText.includes(kw)) {
-            if (!found.some(item => item.name === food.name)) {
-              found.push({
-                ...food,
-                quantity: 1,
-                calcCals: food.calories,
-                calcP: food.protein,
-                calcC: food.carbs,
-                calcF: food.fats
-              });
-              processedText = processedText.replace(kw, '');
-            }
-          }
-        });
-      });
-    };
-
-    // 1. Search Custom DB First (Priority)
-    searchInDB(customFoods, true);
-    // 2. Fallback to Hardcoded DB
-    searchInDB(FOOD_DB, false);
-
-    return found;
-  };
-
   const handleTextChange = (e) => {
-    const text = e.target.value;
-    setInputText(text);
-    if (text.trim().length > 1) {
-      setParsedItems(calculateFromText(text));
-    } else {
-      setParsedItems([]);
-    }
+    setInputText(e.target.value);
   };
 
-  const logMeal = async () => {
+  const parseWithAI = async () => {
+    if (!inputText.trim()) return;
+    setIsParsingAI(true);
+    
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        alert("Please add VITE_GEMINI_API_KEY to your .env file!");
+        setIsParsingAI(false);
+        return;
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const prompt = `You are a strict food parsing API. Parse the following text into a JSON array of objects. 
+Each object must have exactly these keys: "food_name" (string), "weight_g" (number).
+Do not output anything else except the JSON array. No conversational prose, no markdown formatting.
+If the user specifies cups or other units, convert them to an approximate weight_g (e.g. 1 cup rice = 150g).
+For items naturally counted (e.g. 2 eggs), output weight_g as the count (e.g. 2).
+
+User Input: "${inputText}"`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      let text = response.text();
+      // Clean up markdown formatting if any
+      text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+      
+      const parsedData = JSON.parse(text);
+      
+      const allFoods = [...FOOD_DB, ...customFoods];
+      let matchedItems = [];
+
+      parsedData.forEach(item => {
+        let bestMatch = null;
+        for (const food of allFoods) {
+           const foodName = food.name.toLowerCase();
+           const searchName = item.food_name.toLowerCase();
+           if (foodName.includes(searchName) || searchName.includes(foodName.split(' (')[0])) {
+              bestMatch = food;
+              break;
+           }
+        }
+        
+        if (!bestMatch) {
+            for (const food of allFoods) {
+               if (food.keywords && food.keywords.some(kw => item.food_name.toLowerCase().includes(kw))) {
+                   bestMatch = food;
+                   break;
+               }
+            }
+        }
+        
+        if (bestMatch) {
+            let qty = 1;
+            const weight = item.weight_g;
+            if (bestMatch.name.includes('(100g)')) {
+                qty = weight / 100;
+            } else if (bestMatch.unit === 'cup') {
+                qty = weight / 150;
+            } else if (bestMatch.unit === 'qty') {
+                qty = weight; // Assume AI parsed it as count
+            } else {
+                qty = weight / 100; // Default heuristic
+            }
+            
+            matchedItems.push({
+              ...bestMatch,
+              quantity: Number(qty.toFixed(2)),
+              calcCals: bestMatch.calories * qty,
+              calcP: bestMatch.protein * qty,
+              calcC: bestMatch.carbs * qty,
+              calcF: bestMatch.fats * qty
+            });
+        }
+      });
+      
+      setParsedItems(matchedItems);
+      
+      if (matchedItems.length > 0) {
+          await logMeal(matchedItems);
+      } else {
+          alert("Could not match any foods from your database.");
+      }
+    } catch (err) {
+      console.error("AI Parsing Error:", err);
+      alert("Failed to parse with AI. " + err.message);
+    }
+    setIsParsingAI(false);
+  };
+
+  const logMeal = async (itemsToLog = null) => {
     // Combine parsed items from text and items from quick select
     const quickSelectItems = [...FOOD_DB, ...customFoods]
       .filter(f => quickQuantities[f.name] > 0)
@@ -209,7 +225,9 @@ function App() {
         calcF: f.fats * quickQuantities[f.name]
       }));
 
-    const finalItems = [...parsedItems, ...quickSelectItems];
+    // If AI provides itemsToLog directly, use them (and combine with quick select if needed)
+    const activeParsedItems = itemsToLog && Array.isArray(itemsToLog) ? itemsToLog : parsedItems;
+    const finalItems = [...activeParsedItems, ...quickSelectItems];
 
     if (finalItems.length === 0) return;
 
@@ -635,13 +653,22 @@ function App() {
                 <textarea
                   value={inputText}
                   onChange={handleTextChange}
-                  placeholder="e.g. 500g rice and 2x chicken"
+                  placeholder="e.g., 200g chicken breast and 1 cup of white rice..."
                   className="w-full h-32 bg-slate-900 border-2 border-slate-800 rounded-[2rem] p-6 text-white placeholder-slate-700 focus:outline-none focus:border-indigo-500 transition-all shadow-2xl resize-none text-xl font-medium"
+                  disabled={isParsingAI}
                 />
                 <div className="absolute right-6 bottom-6">
-                  <div className={`p-3 rounded-2xl ${inputText.length > 1 ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-600'} transition-all shadow-lg`}>
-                    <Utensils className="w-6 h-6" />
-                  </div>
+                  <button 
+                    onClick={parseWithAI}
+                    disabled={inputText.length < 2 || isParsingAI}
+                    className={`p-3 rounded-2xl flex items-center justify-center transition-all shadow-lg ${inputText.length > 1 && !isParsingAI ? 'bg-indigo-600 text-white hover:bg-indigo-500 active:scale-95 cursor-pointer' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                  >
+                    {isParsingAI ? (
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    ) : (
+                      <Utensils className="w-6 h-6" />
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -717,10 +744,10 @@ function App() {
               </div>
             )}
 
-            {inputText.trim().length > 2 && parsedItems.length === 0 && !Object.values(quickQuantities).some(v => v > 0) && (
+            {inputText.trim().length > 2 && parsedItems.length === 0 && !Object.values(quickQuantities).some(v => v > 0) && !isParsingAI && (
               <div className="flex items-center gap-4 text-slate-400 text-sm p-6 bg-slate-900/50 rounded-[2rem] border border-slate-800 border-dashed">
                 <AlertCircle className="w-6 h-6 text-slate-600 shrink-0" />
-                <span>No match. Use "Quick Add" or try keywords like "chicken".</span>
+                <span>No match yet. Type a meal and click the Utensils button to parse with AI.</span>
               </div>
             )}
 
