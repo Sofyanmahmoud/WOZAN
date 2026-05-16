@@ -133,7 +133,7 @@ function App() {
       }
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       const prompt = `You are a strict food parsing API. Parse the following text into a JSON array of objects. 
 Each object must have exactly these keys: "food_name" (string), "weight_g" (number).
