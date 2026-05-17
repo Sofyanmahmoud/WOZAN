@@ -42,6 +42,330 @@ const FOOD_DB = [
 ];
 
 // Helper components for Dashboard
+function AnimatedNumber({ value, duration = 600 }) {
+  const [displayValue, setDisplayValue] = useState(value);
+
+  useEffect(() => {
+    let startTimestamp = null;
+    const startValue = displayValue;
+    const endValue = value;
+    if (startValue === endValue) return;
+
+    const step = (timestamp) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      // easeOutQuad curve
+      const easeProgress = progress * (2 - progress);
+      const currentVal = Math.round(startValue + (endValue - startValue) * easeProgress);
+      setDisplayValue(currentVal);
+
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      }
+    };
+
+    window.requestAnimationFrame(step);
+  }, [value, duration]);
+
+  return <span>{displayValue.toLocaleString()}</span>;
+}
+
+function WeeklyMatrix({ meals, theme }) {
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const mondayDiff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + mondayDiff);
+  
+  const days = [];
+  const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateKey = d.toISOString().split('T')[0];
+    
+    const dayMeals = meals.filter(m => {
+      const mDate = m.date || (m.created_at ? m.created_at.split('T')[0] : '');
+      return mDate === dateKey;
+    });
+
+    const totalCals = dayMeals.reduce((acc, m) => acc + Number(m.calories || 0), 0);
+
+    let status = 'empty';
+    if (totalCals >= TARGET_CALORIES) {
+      status = 'met';
+    } else if (totalCals > 0) {
+      status = 'partial';
+    }
+
+    days.push({
+      label: dayLabels[i],
+      dayName: dayNames[i],
+      dateStr: dateKey,
+      totalCals,
+      status,
+      isToday: dateKey === todayStr
+    });
+  }
+
+  return (
+    <div className={`rounded-[2rem] p-5 border shadow-lg transition-all duration-300 ${
+      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'
+    }`}>
+      <div className="flex items-center justify-between mb-4 px-1">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-950/50 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+            <Flame className="w-4 h-4 text-orange-500 fill-orange-500" />
+          </div>
+          <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-650'}`}>
+            Weekly Consistency
+          </span>
+        </div>
+        <span className={`text-[9px] font-bold ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+          Current Week
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 gap-2.5">
+        {days.map((day, idx) => {
+          let blockBg = "";
+          let labelColor = "";
+          let ringStyle = "";
+
+          if (day.status === 'met') {
+            blockBg = theme === 'dark' 
+              ? 'bg-emerald-500 border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.4)] text-white' 
+              : 'bg-emerald-500 border-emerald-400 text-white';
+            labelColor = "text-emerald-500 dark:text-emerald-400 font-black";
+          } else if (day.status === 'partial') {
+            blockBg = theme === 'dark'
+              ? 'bg-amber-500/25 border-amber-500/40 text-amber-300'
+              : 'bg-amber-100 border-amber-200 text-amber-700';
+            labelColor = "text-amber-550 dark:text-amber-400 font-bold";
+          } else {
+            blockBg = theme === 'dark'
+              ? 'bg-slate-950 border-slate-850 text-slate-700'
+              : 'bg-slate-50 border-slate-200 text-slate-400';
+            labelColor = "text-slate-400 dark:text-slate-600";
+          }
+
+          if (day.isToday) {
+            ringStyle = "ring-2 ring-indigo-500 ring-offset-2 " + (theme === 'dark' ? 'ring-offset-slate-900' : 'ring-offset-white');
+          }
+
+          return (
+            <div key={idx} className="flex flex-col items-center gap-1.5">
+              <div 
+                className={`w-full aspect-square rounded-xl border flex items-center justify-center text-xs font-black transition-all duration-300 relative ${blockBg} ${ringStyle}`}
+                title={`${day.dayName}: ${day.totalCals} / ${TARGET_CALORIES} kcal`}
+              >
+                {day.label}
+                {day.isToday && (
+                  <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                )}
+              </div>
+              <span className={`text-[8px] uppercase tracking-tighter transition-colors ${labelColor}`}>
+                {day.dayName}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HistoryMealCard({ meal, todayString, date, theme, updateMealPortion, deleteMeal }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const mealName = meal.food_name || meal.rawText || meal.raw_text || "Meal";
+  const mealCals = meal.calories !== undefined ? meal.calories : (meal.totals?.calories || 0);
+  const pVal = meal.protein !== undefined ? meal.protein : (meal.totals?.protein || 0);
+  const cVal = meal.carbs !== undefined ? meal.carbs : (meal.totals?.carbs || 0);
+  const fVal = meal.fats !== undefined ? meal.fats : (meal.totals?.fats || 0);
+  const mealTime = meal.time || (meal.created_at ? new Date(meal.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+
+  const hasMultipleItems = meal.items && meal.items.length > 1;
+
+  return (
+    <div 
+      onClick={() => setIsExpanded(!isExpanded)}
+      className={`rounded-[2rem] border shadow-md group relative overflow-hidden transition-all duration-300 cursor-pointer ${
+        theme === 'dark' 
+          ? 'bg-slate-900 border-slate-800 hover:border-indigo-500/30' 
+          : 'bg-white border-slate-100 hover:border-indigo-500/20 shadow-sm'
+      }`}
+    >
+      <div className={`absolute top-0 left-0 w-1.5 h-full transition-all duration-300 ${
+        isExpanded ? 'bg-indigo-500' : 'bg-indigo-600 opacity-0 group-hover:opacity-100'
+      }`}></div>
+
+      <div className="p-5 flex justify-between items-center select-none">
+        <div className="flex-1 min-w-0 pr-4">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+              theme === 'dark' ? 'bg-slate-950 text-indigo-400' : 'bg-indigo-50 text-indigo-650'
+            }`}>
+              {hasMultipleItems ? `${meal.items.length} Items` : "Single Item"}
+            </span>
+            <span className={`text-[9px] font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+              {mealTime}
+            </span>
+          </div>
+          <h4 className={`font-black text-base truncate transition-colors leading-tight ${
+            theme === 'dark' ? 'text-white' : 'text-slate-900'
+          }`}>
+            {mealName}
+          </h4>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right">
+            <div className={`text-xl font-black leading-none tracking-tight ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
+              {mealCals.toLocaleString()}
+            </div>
+            <div className={`text-[8px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+              kcal
+            </div>
+          </div>
+          <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
+            isExpanded ? 'rotate-90 text-indigo-500' : ''
+          }`} />
+        </div>
+      </div>
+
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className={`transition-all duration-300 ease-out overflow-hidden border-t ${
+          theme === 'dark' ? 'border-slate-800/50' : 'border-slate-100'
+        } ${
+          isExpanded ? 'max-h-[600px] opacity-100 p-5 pt-4 bg-slate-950/20' : 'max-h-0 opacity-0 pointer-events-none'
+        }`}
+      >
+        <div className="space-y-3 mb-5">
+          <div className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+            Ingredient Breakdown
+          </div>
+          
+          {meal.items && meal.items.length > 0 ? (
+            <div className={`rounded-2xl p-3 border space-y-2 ${
+              theme === 'dark' ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-50 border-slate-200/50'
+            }`}>
+              {meal.items.map((it, i) => (
+                <div key={i} className="flex justify-between items-center text-xs">
+                  <div className="flex flex-col min-w-0 pr-2">
+                    <span className={`font-bold truncate ${theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>
+                      {it.name.split(' (')[0]}
+                    </span>
+                    <span className={`text-[9px] ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                      Qty: {it.quantity}x • {it.weight ? `${it.weight}g` : 'Standard portion'}
+                    </span>
+                  </div>
+                  <span className={`font-black shrink-0 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
+                    {Math.round(it.calcCals)} kcal
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={`text-xs italic p-3 rounded-2xl border text-center ${
+              theme === 'dark' ? 'text-slate-550 border-slate-800' : 'text-slate-400 border-slate-200'
+            }`}>
+              No item details parsed
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-5">
+          <div className={`p-2 rounded-xl border text-center ${
+            theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
+          }`}>
+            <span className="text-[8px] font-bold text-indigo-400 uppercase tracking-widest">Protein</span>
+            <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              {pVal}g
+            </div>
+          </div>
+          <div className={`p-2 rounded-xl border text-center ${
+            theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
+          }`}>
+            <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest">Carbs</span>
+            <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              {cVal}g
+            </div>
+          </div>
+          <div className={`p-2 rounded-xl border text-center ${
+            theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
+          }`}>
+            <span className="text-[8px] font-bold text-amber-400 uppercase tracking-widest">Fats</span>
+            <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              {fVal}g
+            </div>
+          </div>
+        </div>
+
+        {date === todayString && (
+          <div className={`flex items-center justify-between p-2.5 rounded-2xl border mb-5 ${
+            theme === 'dark' ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200/60'
+          }`}>
+            <span className={`text-[9px] font-black uppercase tracking-widest pl-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+              Portions
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => updateMealPortion(meal.id, -0.5)}
+                className={`w-7 h-7 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
+                  theme === 'dark' 
+                    ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
+                    : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
+                }`}
+              >
+                <span className="text-sm font-black">−</span>
+              </button>
+              <span className={`text-xs font-black w-6 text-center ${theme === 'dark' ? 'text-white' : 'text-slate-850'}`}>
+                {meal.portionMultiplier || 1}x
+              </span>
+              <button
+                onClick={() => updateMealPortion(meal.id, 0.5)}
+                className={`w-7 h-7 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
+                  theme === 'dark' 
+                    ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
+                    : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
+                }`}
+              >
+                <span className="text-sm font-black">+</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-between items-center border-t pt-3 border-slate-800/30">
+          <span className={`text-[8px] font-black uppercase tracking-widest ${
+            theme === 'dark' ? 'text-emerald-500/80' : 'text-emerald-600'
+          }`}>
+            ✓ Cloud Synced
+          </span>
+          <button
+            onClick={() => deleteMeal(meal.id)}
+            className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border transition-all active:scale-90 shadow-sm ${
+              theme === 'dark' 
+                ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' 
+                : 'bg-red-50 border-red-100 text-red-650 hover:bg-red-100'
+            }`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete Log
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CalorieProgressRing({ current, target, theme }) {
   const percentage = target > 0 ? (current / target) * 100 : 0;
   const displayPercentage = Math.round(percentage);
@@ -97,19 +421,20 @@ function CalorieProgressRing({ current, target, theme }) {
               strokeDasharray={circumference}
               strokeDashoffset={strokeDashoffset}
               strokeLinecap="round"
-              className={`transition-all duration-1000 ease-out ${ringAnimation}`}
+              className={`${ringAnimation}`}
               style={{
+                transition: "stroke-dashoffset 600ms cubic-bezier(0.16, 1, 0.3, 1), stroke 600ms cubic-bezier(0.16, 1, 0.3, 1)",
                 filter: `drop-shadow(0 0 10px ${glowColor})`,
               }}
             />
           </svg>
-
+ 
           {/* Absolute text container inside the circle */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className={`text-[9px] font-black tracking-widest uppercase mb-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Intake</span>
             <div className="relative inline-block leading-none">
               <span className={`text-4xl font-black tracking-tighter ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-                {current.toLocaleString()}
+                <AnimatedNumber value={current} />
               </span>
             </div>
             <span className={`text-[10px] font-bold mt-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -118,7 +443,7 @@ function CalorieProgressRing({ current, target, theme }) {
           </div>
         </div>
       </div>
-
+ 
       <div className="flex justify-center">
         <div className={`px-4 py-1.5 rounded-full text-xs font-black tracking-wider uppercase flex items-center gap-1.5 transition-all ${
           isSurplus 
@@ -154,23 +479,23 @@ function CalorieProgressRing({ current, target, theme }) {
     </div>
   );
 }
-
+ 
 function MacroCircle({ label, current, target, colorClass, strokeColor, theme }) {
   const percentage = target > 0 ? (current / target) * 100 : 0;
   const displayPercentage = Math.round(percentage);
   
   const isSurplus = current > target;
   const isClose = current >= target * 0.9 && current <= target;
-
+ 
   const radius = 34;
   const strokeWidth = 7;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (Math.min(percentage, 100) / 100) * circumference;
-
+ 
   let activeStrokeColor = strokeColor;
   let animationClass = "";
   let glowColor = "";
-
+ 
   if (isSurplus) {
     activeStrokeColor = "#ef4444"; // Vivid Red
     animationClass = "animate-pulse";
@@ -182,7 +507,7 @@ function MacroCircle({ label, current, target, colorClass, strokeColor, theme })
   } else {
     glowColor = strokeColor + "33"; // 20% opacity glow
   }
-
+ 
   return (
     <div className={`flex flex-col items-center justify-center p-4 rounded-[2rem] border transition-all duration-300 ${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}>
       <span className={`text-[10px] font-black uppercase tracking-widest mb-3 ${colorClass}`}>{label}</span>
@@ -206,16 +531,17 @@ function MacroCircle({ label, current, target, colorClass, strokeColor, theme })
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="round"
-            className={`transition-all duration-1000 ease-out ${animationClass}`}
+            className={`${animationClass}`}
             style={{
+              transition: "stroke-dashoffset 600ms cubic-bezier(0.16, 1, 0.3, 1), stroke 600ms cubic-bezier(0.16, 1, 0.3, 1)",
               filter: `drop-shadow(0 0 5px ${glowColor})`,
             }}
           />
         </svg>
-
+ 
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className={`text-base font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-            {current}g
+            <AnimatedNumber value={current} />g
           </span>
           <span className="text-[8px] font-bold text-slate-500 leading-none">
             / {target}g
@@ -908,6 +1234,9 @@ User Input: "${inputText}"`;
         {/* VIEW: DASHBOARD */}
         {currentView === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Weekly Consistency Matrix */}
+            <WeeklyMatrix meals={meals} theme={theme} />
+
             {/* Custom Glowing Calorie Progress Ring */}
             <CalorieProgressRing current={stats.calories} target={TARGET_CALORIES} theme={theme} />
 
@@ -1167,98 +1496,15 @@ User Input: "${inputText}"`;
                   </div>
 
                   {groupedMeals[date].meals.map(meal => (
-                    <div key={meal.id} className={`rounded-[2.5rem] p-6 border shadow-xl group relative overflow-hidden transition-all hover:border-indigo-500/20 ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'
-                    }`}>
-                      <div className="absolute top-0 right-0 w-1.5 h-full bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-
-                      <div className="flex justify-between items-start mb-6">
-                        <div className="flex-1 pr-4">
-                          <p className={`font-bold text-lg leading-tight mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{meal.food_name || meal.rawText || meal.raw_text || "Meal"}</p>
-
-                          {meal.items && meal.items.length > 1 ? (
-                            <div className="flex flex-col gap-1.5 mt-2">
-                              {meal.items.map((it, i) => (
-                                <div key={i} className="flex items-center justify-between text-[11px]">
-                                  <span className={`flex-1 truncate pr-2 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>• {it.quantity}x {it.name.split(' (')[0]}</span>
-                                  <span className={`font-bold px-1.5 rounded ${theme === 'dark' ? 'text-indigo-400 bg-slate-950' : 'text-indigo-600 bg-indigo-50'}`}>{Math.round(it.calcCals)} kcal</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap gap-2 mt-1">
-                              {meal.items && meal.items.slice(0, 3).map((it, i) => (
-                                <span key={i} className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-tighter ${
-                                  theme === 'dark' 
-                                    ? 'bg-slate-950 text-indigo-400/70 border-slate-800/50' 
-                                    : 'bg-indigo-50 text-indigo-650 border-indigo-100/50'
-                                }`}>
-                                  {it.name.split(' ')[0]}
-                                </span>
-                              ))}
-                              {meal.items && meal.items.length > 3 && <span className={`text-[9px] font-bold ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>+{meal.items.length - 3} more</span>}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => deleteMeal(meal.id)}
-                          className={`hover:text-red-500 p-3 rounded-2xl transition-all active:scale-90 shadow-inner ${
-                            theme === 'dark' ? 'text-slate-700 bg-slate-950' : 'text-slate-400 bg-slate-50'
-                          }`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-
-                      {/* Portion Adjustment UI for Today's Logs */}
-                      {date === todayString && (
-                        <div className={`flex items-center justify-between p-3 rounded-[1.5rem] border mb-6 ${
-                          theme === 'dark' ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'
-                        }`}>
-                          <div className={`text-[10px] font-black uppercase tracking-widest pl-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Portions</div>
-                          <div className="flex items-center gap-4">
-                            <button
-                              onClick={() => updateMealPortion(meal.id, -0.5)}
-                              className={`w-9 h-9 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
-                                theme === 'dark' 
-                                  ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
-                                  : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-lg font-black">−</span>
-                            </button>
-                            <div className={`text-sm font-black w-8 text-center ${theme === 'dark' ? 'text-white' : 'text-slate-850'}`}>
-                              {meal.portionMultiplier || 1}x
-                            </div>
-                            <button
-                              onClick={() => updateMealPortion(meal.id, 0.5)}
-                              className={`w-9 h-9 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
-                                theme === 'dark' 
-                                  ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
-                                  : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-lg font-black">+</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className={`flex justify-between items-end border-t pt-5 transition-colors duration-300 ${theme === 'dark' ? 'border-slate-800/50' : 'border-slate-100'}`}>
-                        <div className="flex flex-col gap-1">
-                          <div className={`text-[10px] font-black uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>
-                            {meal.time || (meal.created_at ? new Date(meal.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')}
-                          </div>
-                          <div className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-emerald-500/85' : 'text-emerald-600'}`}>Surplus Tracked</div>
-                        </div>
-                        <div className="text-right">
-                          <div className={`text-4xl font-black leading-none mb-1 tracking-tighter ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}>{meal.calories !== undefined ? meal.calories : (meal.totals?.calories || 0)}</div>
-                          <div className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-                            {meal.protein !== undefined ? meal.protein : (meal.totals?.protein || 0)}P • {meal.carbs !== undefined ? meal.carbs : (meal.totals?.carbs || 0)}C • {meal.fats !== undefined ? meal.fats : (meal.totals?.fats || 0)}F
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <HistoryMealCard
+                      key={meal.id}
+                      meal={meal}
+                      todayString={todayString}
+                      date={date}
+                      theme={theme}
+                      updateMealPortion={updateMealPortion}
+                      deleteMeal={deleteMeal}
+                    />
                   ))}
                 </div>
               ))
