@@ -25,10 +25,7 @@ import { supabase } from './lib/supabase';
 // --- CONFIGURATION ---
 const todayString = new Date().toISOString().split('T')[0];
 
-const TARGET_CALORIES = 3000;
-const PROTEIN_TARGET = 150;
-const CARBS_TARGET = 350;
-const FATS_TARGET = Math.round((TARGET_CALORIES - (PROTEIN_TARGET * 4) - (CARBS_TARGET * 4)) / 9) || 100;
+// Targets are dynamically handled in the App component state and scaled reactive split values.
 
 const FOOD_DB = [
   { keywords: ['chicken', 'breast'], name: 'Chicken Breast (100g)', calories: 165, protein: 31, carbs: 0, fats: 3.6, unit: 'g' },
@@ -70,13 +67,14 @@ function AnimatedNumber({ value, duration = 600 }) {
   return <span>{displayValue.toLocaleString()}</span>;
 }
 
-function WeeklyMatrix({ meals, theme }) {
+function WeeklyMatrix({ meals, theme, targetCalories }) {
   const today = new Date();
   const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   const mondayDiff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
   
   const monday = new Date(today);
-  monday.setDate(today.getDate() + mondayDiff);
+  const mDateVal = today.getDate() + mondayDiff;
+  monday.setDate(mDateVal);
   
   const days = [];
   const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -97,7 +95,7 @@ function WeeklyMatrix({ meals, theme }) {
     const totalCals = dayMeals.reduce((acc, m) => acc + Number(m.calories || 0), 0);
 
     let status = 'empty';
-    if (totalCals >= TARGET_CALORIES) {
+    if (totalCals >= targetCalories) {
       status = 'met';
     } else if (totalCals > 0) {
       status = 'partial';
@@ -114,8 +112,10 @@ function WeeklyMatrix({ meals, theme }) {
   }
 
   return (
-    <div className={`rounded-[2rem] p-5 border shadow-lg transition-all duration-300 ${
-      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'
+    <div className={`rounded-[2rem] p-5 border shadow-lg transition-all duration-300 backdrop-blur-xl ${
+      theme === 'dark' 
+        ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' 
+        : 'bg-white/45 border-slate-200/50 shadow-slate-100'
     }`}>
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2">
@@ -149,9 +149,9 @@ function WeeklyMatrix({ meals, theme }) {
             labelColor = "text-amber-550 dark:text-amber-400 font-bold";
           } else {
             blockBg = theme === 'dark'
-              ? 'bg-slate-950 border-slate-850 text-slate-700'
-              : 'bg-slate-50 border-slate-200 text-slate-400';
-            labelColor = "text-slate-400 dark:text-slate-600";
+              ? 'bg-slate-950/55 border-slate-850 text-slate-700'
+              : 'bg-slate-50/55 border-slate-200 text-slate-400';
+            labelColor = "text-slate-400 dark:text-slate-650";
           }
 
           if (day.isToday) {
@@ -162,7 +162,7 @@ function WeeklyMatrix({ meals, theme }) {
             <div key={idx} className="flex flex-col items-center gap-1.5">
               <div 
                 className={`w-full aspect-square rounded-xl border flex items-center justify-center text-xs font-black transition-all duration-300 relative ${blockBg} ${ringStyle}`}
-                title={`${day.dayName}: ${day.totalCals} / ${TARGET_CALORIES} kcal`}
+                title={`${day.dayName}: ${day.totalCals} / ${targetCalories} kcal`}
               >
                 {day.label}
                 {day.isToday && (
@@ -182,6 +182,9 @@ function WeeklyMatrix({ meals, theme }) {
 
 function HistoryMealCard({ meal, todayString, date, theme, updateMealPortion, deleteMeal }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [startX, setStartX] = useState(0);
+  const [isTransitioning, setIsTransitioning] = useState(true);
 
   const mealName = meal.food_name || meal.rawText || meal.raw_text || "Meal";
   const mealCals = meal.calories !== undefined ? meal.calories : (meal.totals?.calories || 0);
@@ -192,174 +195,291 @@ function HistoryMealCard({ meal, todayString, date, theme, updateMealPortion, de
 
   const hasMultipleItems = meal.items && meal.items.length > 1;
 
+  const handleTouchStart = (e) => {
+    setStartX(e.touches[0].clientX);
+    setIsTransitioning(false);
+  };
+
+  const handleTouchMove = (e) => {
+    const currentX = e.touches[0].clientX;
+    const deltaX = currentX - startX;
+    if (deltaX < 0) {
+      setSwipeOffset(Math.max(deltaX, -100));
+    } else {
+      setSwipeOffset(0);
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    setIsTransitioning(true);
+    if (swipeOffset < -45) {
+      setSwipeOffset(-80);
+    } else {
+      setSwipeOffset(0);
+      const finalX = e.changedTouches[0].clientX;
+      if (Math.abs(finalX - startX) < 5) {
+        setIsExpanded(!isExpanded);
+      }
+    }
+  };
+
   return (
     <div 
-      onClick={() => setIsExpanded(!isExpanded)}
-      className={`rounded-[2rem] border shadow-md group relative overflow-hidden transition-all duration-300 cursor-pointer ${
-        theme === 'dark' 
-          ? 'bg-slate-900 border-slate-800 hover:border-indigo-500/30' 
-          : 'bg-white border-slate-100 hover:border-indigo-500/20 shadow-sm'
-      }`}
+      className="relative overflow-hidden rounded-[2rem] shadow-md select-none group"
+      style={{ touchAction: 'pan-y' }}
     >
-      <div className={`absolute top-0 left-0 w-1.5 h-full transition-all duration-300 ${
-        isExpanded ? 'bg-indigo-500' : 'bg-indigo-600 opacity-0 group-hover:opacity-100'
-      }`}></div>
-
-      <div className="p-5 flex justify-between items-center select-none">
-        <div className="flex-1 min-w-0 pr-4">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
-              theme === 'dark' ? 'bg-slate-950 text-indigo-400' : 'bg-indigo-50 text-indigo-650'
-            }`}>
-              {hasMultipleItems ? `${meal.items.length} Items` : "Single Item"}
-            </span>
-            <span className={`text-[9px] font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-              {mealTime}
-            </span>
-          </div>
-          <h4 className={`font-black text-base truncate transition-colors leading-tight ${
-            theme === 'dark' ? 'text-white' : 'text-slate-900'
-          }`}>
-            {mealName}
-          </h4>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="text-right">
-            <div className={`text-xl font-black leading-none tracking-tight ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
-              {mealCals.toLocaleString()}
-            </div>
-            <div className={`text-[8px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-              kcal
-            </div>
-          </div>
-          <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
-            isExpanded ? 'rotate-90 text-indigo-500' : ''
-          }`} />
-        </div>
+      {/* Underlying Swipe Delete Action Panel */}
+      <div 
+        onClick={() => deleteMeal(meal.id)}
+        className="absolute top-0 right-0 h-full w-24 bg-rose-500 hover:bg-rose-600 flex flex-col items-center justify-center text-white active:scale-95 transition-all select-none cursor-pointer z-0 rounded-[2rem]"
+      >
+        <Trash2 className="w-5 h-5 text-white animate-pulse mb-1" />
+        <span className="text-[9px] font-black uppercase tracking-widest text-white/90">Delete</span>
       </div>
 
-      <div 
-        onClick={(e) => e.stopPropagation()}
-        className={`transition-all duration-300 ease-out overflow-hidden border-t ${
-          theme === 'dark' ? 'border-slate-800/50' : 'border-slate-100'
-        } ${
-          isExpanded ? 'max-h-[600px] opacity-100 p-5 pt-4 bg-slate-950/20' : 'max-h-0 opacity-0 pointer-events-none'
+      {/* Swipeable Foreground Card Body */}
+      <div
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className={`rounded-[2rem] border transition-all duration-300 cursor-pointer z-10 relative ${
+          theme === 'dark' 
+            ? 'bg-slate-900/45 border-white/5 hover:border-indigo-500/30 backdrop-blur-xl' 
+            : 'bg-white/45 border-slate-200/50 hover:border-indigo-500/20 shadow-sm backdrop-blur-xl'
         }`}
+        style={{
+          transform: `translate3d(${swipeOffset}px, 0, 0)`,
+          transition: isTransitioning ? 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)' : 'none'
+        }}
       >
-        <div className="space-y-3 mb-5">
-          <div className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-            Ingredient Breakdown
-          </div>
-          
-          {meal.items && meal.items.length > 0 ? (
-            <div className={`rounded-2xl p-3 border space-y-2 ${
-              theme === 'dark' ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-50 border-slate-200/50'
+        <div className={`absolute top-0 left-0 w-1.5 h-full transition-all duration-300 ${
+          isExpanded ? 'bg-indigo-500' : 'bg-indigo-600 opacity-0 group-hover:opacity-100'
+        }`}></div>
+
+        <div className="p-5 flex justify-between items-center select-none">
+          <div className="flex-1 min-w-0 pr-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                theme === 'dark' ? 'bg-slate-950 text-indigo-400' : 'bg-indigo-50 text-indigo-650'
+              }`}>
+                {hasMultipleItems ? `${meal.items.length} Items` : "Single Item"}
+              </span>
+              <span className={`text-[9px] font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                {mealTime}
+              </span>
+            </div>
+            <h4 className={`font-black text-base truncate transition-colors leading-tight ${
+              theme === 'dark' ? 'text-white' : 'text-slate-900'
             }`}>
-              {meal.items.map((it, i) => (
-                <div key={i} className="flex justify-between items-center text-xs">
-                  <div className="flex flex-col min-w-0 pr-2">
-                    <span className={`font-bold truncate ${theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>
-                      {it.name.split(' (')[0]}
-                    </span>
-                    <span className={`text-[9px] ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-                      Qty: {it.quantity}x • {it.weight ? `${it.weight}g` : 'Standard portion'}
+              {mealName}
+            </h4>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="text-right">
+              <div className={`text-xl font-black leading-none tracking-tight ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
+                {mealCals.toLocaleString()}
+              </div>
+              <div className={`text-[8px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                kcal
+              </div>
+            </div>
+            <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
+              isExpanded ? 'rotate-90 text-indigo-500' : ''
+            }`} />
+          </div>
+        </div>
+
+        <div 
+          onClick={(e) => e.stopPropagation()}
+          className={`transition-all duration-300 ease-out overflow-hidden border-t ${
+            theme === 'dark' ? 'border-slate-800/50' : 'border-slate-100'
+          } ${
+            isExpanded ? 'max-h-[600px] opacity-100 p-5 pt-4 bg-slate-950/20' : 'max-h-0 opacity-0 pointer-events-none'
+          }`}
+        >
+          <div className="space-y-3 mb-5">
+            <div className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+              Ingredient Breakdown
+            </div>
+            
+            {meal.items && meal.items.length > 0 ? (
+              <div className={`rounded-2xl p-3 border space-y-2 ${
+                theme === 'dark' ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-50 border-slate-200/50'
+              }`}>
+                {meal.items.map((it, i) => (
+                  <div key={i} className="flex justify-between items-center text-xs">
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <span className={`font-bold truncate ${theme === 'dark' ? 'text-slate-200' : 'text-slate-700'}`}>
+                        {it.name.split(' (')[0]}
+                      </span>
+                      <span className={`text-[9px] ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                        Qty: {it.quantity}x • {it.weight ? `${it.weight}g` : 'Standard portion'}
+                      </span>
+                    </div>
+                    <span className={`font-black shrink-0 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
+                      {Math.round(it.calcCals)} kcal
                     </span>
                   </div>
-                  <span className={`font-black shrink-0 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
-                    {Math.round(it.calcCals)} kcal
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className={`text-xs italic p-3 rounded-2xl border text-center ${
-              theme === 'dark' ? 'text-slate-550 border-slate-800' : 'text-slate-400 border-slate-200'
+                ))}
+              </div>
+            ) : (
+              <div className={`text-xs italic p-3 rounded-2xl border text-center ${
+                theme === 'dark' ? 'text-slate-550 border-slate-800' : 'text-slate-400 border-slate-200'
+              }`}>
+                No item details parsed
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mb-5">
+            <div className={`p-2 rounded-xl border text-center ${
+              theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
             }`}>
-              No item details parsed
+              <span className="text-[8px] font-bold text-indigo-400 uppercase tracking-widest">Protein</span>
+              <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                {pVal}g
+              </div>
+            </div>
+            <div className={`p-2 rounded-xl border text-center ${
+              theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
+            }`}>
+              <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest">Carbs</span>
+              <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                {cVal}g
+              </div>
+            </div>
+            <div className={`p-2 rounded-xl border text-center ${
+              theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
+            }`}>
+              <span className="text-[8px] font-bold text-amber-400 uppercase tracking-widest">Fats</span>
+              <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                {fVal}g
+              </div>
+            </div>
+          </div>
+
+          {date === todayString && (
+            <div className={`flex items-center justify-between p-2.5 rounded-2xl border mb-5 ${
+              theme === 'dark' ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200/60'
+            }`}>
+              <span className={`text-[9px] font-black uppercase tracking-widest pl-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                Portions
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => updateMealPortion(meal.id, -0.5)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
+                    theme === 'dark' 
+                      ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
+                      : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
+                  }`}
+                >
+                  <span className="text-sm font-black">−</span>
+                </button>
+                <span className={`text-xs font-black w-6 text-center ${theme === 'dark' ? 'text-white' : 'text-slate-850'}`}>
+                  {meal.portionMultiplier || 1}x
+                </span>
+                <button
+                  onClick={() => updateMealPortion(meal.id, 0.5)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
+                    theme === 'dark' 
+                      ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
+                      : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
+                  }`}
+                >
+                  <span className="text-sm font-black">+</span>
+                </button>
+              </div>
             </div>
           )}
-        </div>
 
-        <div className="grid grid-cols-3 gap-2 mb-5">
-          <div className={`p-2 rounded-xl border text-center ${
-            theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
-          }`}>
-            <span className="text-[8px] font-bold text-indigo-400 uppercase tracking-widest">Protein</span>
-            <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-              {pVal}g
-            </div>
-          </div>
-          <div className={`p-2 rounded-xl border text-center ${
-            theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
-          }`}>
-            <span className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest">Carbs</span>
-            <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-              {cVal}g
-            </div>
-          </div>
-          <div className={`p-2 rounded-xl border text-center ${
-            theme === 'dark' ? 'bg-slate-950/20 border-slate-800/60' : 'bg-slate-50 border-slate-200/50'
-          }`}>
-            <span className="text-[8px] font-bold text-amber-400 uppercase tracking-widest">Fats</span>
-            <div className={`text-xs font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-              {fVal}g
-            </div>
-          </div>
-        </div>
-
-        {date === todayString && (
-          <div className={`flex items-center justify-between p-2.5 rounded-2xl border mb-5 ${
-            theme === 'dark' ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200/60'
-          }`}>
-            <span className={`text-[9px] font-black uppercase tracking-widest pl-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-              Portions
+          <div className="flex justify-between items-center border-t pt-3 border-slate-800/30">
+            <span className={`text-[8px] font-black uppercase tracking-widest ${
+              theme === 'dark' ? 'text-emerald-500/80' : 'text-emerald-600'
+            }`}>
+              ✓ Cloud Synced
             </span>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => updateMealPortion(meal.id, -0.5)}
-                className={`w-7 h-7 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
-                  theme === 'dark' 
-                    ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
-                    : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
-                }`}
-              >
-                <span className="text-sm font-black">−</span>
-              </button>
-              <span className={`text-xs font-black w-6 text-center ${theme === 'dark' ? 'text-white' : 'text-slate-850'}`}>
-                {meal.portionMultiplier || 1}x
-              </span>
-              <button
-                onClick={() => updateMealPortion(meal.id, 0.5)}
-                className={`w-7 h-7 flex items-center justify-center rounded-full border transition-all active:scale-90 ${
-                  theme === 'dark' 
-                    ? 'border-slate-800 text-indigo-500 hover:bg-indigo-500 hover:text-white' 
-                    : 'border-slate-200 text-indigo-600 hover:bg-indigo-600 hover:text-white'
-                }`}
-              >
-                <span className="text-sm font-black">+</span>
-              </button>
-            </div>
+            <button
+              onClick={() => deleteMeal(meal.id)}
+              className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border transition-all active:scale-90 shadow-sm ${
+                theme === 'dark' 
+                  ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' 
+                  : 'bg-red-50 border-red-100 text-red-650 hover:bg-red-100'
+              }`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete Log
+            </button>
           </div>
-        )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        <div className="flex justify-between items-center border-t pt-3 border-slate-800/30">
-          <span className={`text-[8px] font-black uppercase tracking-widest ${
-            theme === 'dark' ? 'text-emerald-500/80' : 'text-emerald-600'
-          }`}>
-            ✓ Cloud Synced
+function CalorieGoalAdjuster({ value, onChange, theme }) {
+  const pVal = Math.round((value * 0.20) / 4);
+  const cVal = Math.round((value * 0.50) / 4);
+  const fVal = Math.round((value * 0.30) / 9);
+
+  return (
+    <div className={`rounded-[2.5rem] p-6 border shadow-2xl backdrop-blur-xl transition-all duration-305 ${
+      theme === 'dark' 
+        ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' 
+        : 'bg-white/40 border-slate-200/50 shadow-slate-100'
+    }`}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-950/40 text-indigo-400' : 'bg-indigo-50 text-indigo-650'}`}>
+            <Settings className="w-4 h-4 text-indigo-500 animate-spin-slow" />
+          </div>
+          <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+            Target Adjuster
           </span>
-          <button
-            onClick={() => deleteMeal(meal.id)}
-            className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border transition-all active:scale-90 shadow-sm ${
-              theme === 'dark' 
-                ? 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' 
-                : 'bg-red-50 border-red-100 text-red-650 hover:bg-red-100'
-            }`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete Log
-          </button>
+        </div>
+        <span className={`text-xl font-black ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650'}`}>
+          {value.toLocaleString()} kcal
+        </span>
+      </div>
+
+      <div className="space-y-4">
+        <div className="relative">
+          <input 
+            type="range" 
+            min="1500" 
+            max="5000" 
+            step="50" 
+            value={value} 
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 transition-all focus:outline-none"
+          />
+          <div className="flex justify-between text-[8px] font-bold text-slate-500 dark:text-slate-650 mt-1 select-none">
+            <span>1,500 kcal</span>
+            <span>3,000 (Ideal)</span>
+            <span>5,000 kcal</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/10 dark:border-slate-850">
+          <div className="text-center">
+            <span className="text-[8px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-widest block">Protein (20%)</span>
+            <span className={`text-sm font-black transition-all ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              {pVal}g
+            </span>
+          </div>
+          <div className="text-center">
+            <span className="text-[8px] font-black text-emerald-500 dark:text-emerald-400 uppercase tracking-widest block">Carbs (50%)</span>
+            <span className={`text-sm font-black transition-all ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              {cVal}g
+            </span>
+          </div>
+          <div className="text-center">
+            <span className="text-[8px] font-black text-amber-500 dark:text-amber-400 uppercase tracking-widest block">Fats (30%)</span>
+            <span className={`text-sm font-black transition-all ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+              {fVal}g
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -394,7 +514,11 @@ function CalorieProgressRing({ current, target, theme }) {
   }
 
   return (
-    <div className={`rounded-[2.5rem] p-8 border shadow-2xl relative overflow-hidden text-center group transition-all duration-300 ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'}`}>
+    <div className={`rounded-[2.5rem] p-8 border shadow-2xl relative overflow-hidden text-center group transition-all duration-300 backdrop-blur-xl ${
+      theme === 'dark' 
+        ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' 
+        : 'bg-white/45 border-slate-200/50 shadow-slate-100'
+    }`}>
       <div className="absolute top-0 right-0 -mr-16 -mt-16 w-48 h-48 bg-indigo-600/5 rounded-full blur-3xl pointer-events-none group-hover:bg-indigo-600/10 transition-colors duration-700"></div>
 
       <div className={`text-[10px] font-black tracking-[0.2em] uppercase mb-6 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Daily Surplus Status</div>
@@ -509,7 +633,11 @@ function MacroCircle({ label, current, target, colorClass, strokeColor, theme })
   }
  
   return (
-    <div className={`flex flex-col items-center justify-center p-4 rounded-[2rem] border transition-all duration-300 ${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-xl' : 'bg-white border-slate-100 shadow-sm hover:shadow-md'}`}>
+    <div className={`flex flex-col items-center justify-center p-4 rounded-[2rem] border transition-all duration-300 backdrop-blur-xl ${
+      theme === 'dark' 
+        ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' 
+        : 'bg-white/45 border-slate-200/50 shadow-slate-100 hover:shadow-md'
+    }`}>
       <span className={`text-[10px] font-black uppercase tracking-widest mb-3 ${colorClass}`}>{label}</span>
       
       <div className="relative flex items-center justify-center w-20 h-20">
@@ -584,7 +712,11 @@ function MacroBreakdown({ stats, theme }) {
   };
 
   return (
-    <div className={`rounded-[2.5rem] p-6 border shadow-xl transition-all duration-300 ${theme === 'dark' ? 'bg-slate-900 border-slate-800 shadow-2xl' : 'bg-white border-slate-100 shadow-sm'}`}>
+    <div className={`rounded-[2.5rem] p-6 border shadow-xl transition-all duration-300 backdrop-blur-xl ${
+      theme === 'dark' 
+        ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20 shadow-2xl' 
+        : 'bg-white/45 border-slate-200/50 shadow-slate-100 shadow-sm'
+    }`}>
       <div className="flex items-center gap-3 mb-6">
         <div className={`p-2 rounded-xl transition-all ${theme === 'dark' ? 'bg-indigo-950/40 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -651,6 +783,19 @@ function MacroBreakdown({ stats, theme }) {
 function App() {
   // --- STATE MANAGEMENT ---
   const [meals, setMeals] = useState([]);
+  const [targetCalories, setTargetCalories] = useState(() => {
+    return Number(localStorage.getItem('wozan-target-calories')) || 3000;
+  });
+
+  const TARGET_CALORIES = targetCalories;
+  const PROTEIN_TARGET = Math.round((targetCalories * 0.20) / 4);
+  const CARBS_TARGET = Math.round((targetCalories * 0.50) / 4);
+  const FATS_TARGET = Math.round((targetCalories * 0.30) / 9);
+
+  useEffect(() => {
+    localStorage.setItem('wozan-target-calories', targetCalories);
+  }, [targetCalories]);
+
   const [customFoods, setCustomFoods] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1162,7 +1307,13 @@ User Input: "${inputText}"`;
   const dateKeys = Object.keys(groupedMeals).sort((a, b) => new Date(b) - new Date(a));
 
   return (
-    <div className={`min-h-screen font-sans pb-28 transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950 text-slate-100 selection:bg-indigo-500/30' : 'bg-slate-50 text-slate-800 selection:bg-indigo-500/10'}`}>
+    <div className={`min-h-screen font-sans pb-28 transition-colors duration-300 relative overflow-x-hidden ${theme === 'dark' ? 'bg-slate-950 text-slate-100 selection:bg-indigo-500/30' : 'bg-slate-50 text-slate-800 selection:bg-indigo-500/10'}`}>
+
+      {/* Glassmorphism Glowing Neon Background Blobs */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute top-[-10%] left-[-20%] w-[80vw] h-[80vw] rounded-full bg-indigo-600/8 dark:bg-indigo-600/4 blur-[120px] animate-pulse duration-[8s]"></div>
+        <div className="absolute bottom-[-10%] right-[-20%] w-[80vw] h-[80vw] rounded-full bg-emerald-600/8 dark:bg-emerald-600/4 blur-[120px] animate-pulse duration-[10s]"></div>
+      </div>
 
       {/* Top App Bar */}
       <div className={`backdrop-blur-xl border-b p-4 sticky top-0 z-30 flex items-center justify-between transition-all duration-300 ${theme === 'dark' ? 'bg-slate-950/80 border-slate-800/50 shadow-lg text-white' : 'bg-white/80 border-slate-200/50 shadow-sm text-slate-900'}`}>
@@ -1235,7 +1386,7 @@ User Input: "${inputText}"`;
         {currentView === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Weekly Consistency Matrix */}
-            <WeeklyMatrix meals={meals} theme={theme} />
+            <WeeklyMatrix meals={meals} theme={theme} targetCalories={TARGET_CALORIES} />
 
             {/* Custom Glowing Calorie Progress Ring */}
             <CalorieProgressRing current={stats.calories} target={TARGET_CALORIES} theme={theme} />
@@ -1272,7 +1423,11 @@ User Input: "${inputText}"`;
             <MacroBreakdown stats={stats} theme={theme} />
 
             {/* Mass Builder Advice Section */}
-            <div className={`border rounded-[2.5rem] p-6 transition-all duration-300 ${theme === 'dark' ? 'bg-indigo-950/20 border-indigo-500/20 text-slate-200' : 'bg-indigo-50/50 border-indigo-100 text-slate-800'}`}>
+            <div className={`border rounded-[2.5rem] p-6 transition-all duration-300 backdrop-blur-xl ${
+              theme === 'dark' 
+                ? 'bg-indigo-950/20 border-indigo-500/10 text-slate-200' 
+                : 'bg-indigo-50/40 border-indigo-100 text-slate-800 shadow-sm'
+            }`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className={`p-2 rounded-xl ${theme === 'dark' ? 'bg-indigo-950/40 text-indigo-400' : 'bg-indigo-100/50 text-indigo-600'}`}>
                   {currentAdvice.icon}
@@ -1299,10 +1454,10 @@ User Input: "${inputText}"`;
                   value={inputText}
                   onChange={handleTextChange}
                   placeholder="e.g., 200g chicken breast and 1 cup of white rice..."
-                  className={`w-full h-32 border-2 rounded-[2rem] p-6 focus:outline-none transition-all shadow-2xl resize-none text-xl font-medium ${
+                  className={`w-full h-32 border-2 rounded-[2rem] p-6 focus:outline-none transition-all shadow-2xl resize-none text-xl font-medium backdrop-blur-xl ${
                     theme === 'dark' 
-                      ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-700 focus:border-indigo-500' 
-                      : 'bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500 shadow-md'
+                      ? 'bg-slate-900/40 border-white/5 text-white placeholder-slate-700 focus:border-indigo-500' 
+                      : 'bg-white/45 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500 shadow-md'
                   }`}
                   disabled={isParsingAI}
                 />
@@ -1516,9 +1671,12 @@ User Input: "${inputText}"`;
         {currentView === 'admin' && (
           <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
             <div>
-              <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Food Manager</h2>
-              <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Customize your smart recognition engine</p>
+              <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>System Settings</h2>
+              <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Customize Wozan targets and smart engine</p>
             </div>
+
+            {/* Interactive Calorie & Macro Target Adjuster */}
+            <CalorieGoalAdjuster value={targetCalories} onChange={setTargetCalories} theme={theme} />
 
             <form onSubmit={handleAddCustomFood} className={`rounded-[2.5rem] p-8 border shadow-2xl space-y-6 transition-all duration-300 ${
               theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'
