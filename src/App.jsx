@@ -908,16 +908,35 @@ function App() {
         return;
       }
 
+      const allFoods = [...FOOD_DB, ...customFoods];
+      const availableNames = allFoods.map(f => f.name);
+
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const prompt = `You are a strict food parsing API. Parse the following text into a JSON array of objects. 
-Each object must have exactly these keys: "food_name" (string), "weight_g" (number).
-Do not output anything else except the JSON array. No conversational prose, no markdown formatting.
-If the user specifies cups or other units, convert them to an approximate weight_g (e.g. 1 cup rice = 150g).
-For items naturally counted (e.g. 2 eggs), output weight_g as the count (e.g. 2).
+      const prompt = `You are a strict food parsing nutritional API.
+Analyze the user's text: "${inputText}"
 
-User Input: "${inputText}"`;
+We already have a database of foods. Here is the list of exact food names currently available:
+${JSON.stringify(availableNames)}
+
+Your task is to parse the user's text into a JSON array of objects.
+For EACH food item mentioned in the text, you must output an object with these keys:
+1. "food_name" (string): The name of the food item. If it maps closely to an item in the available database foods list above, use that exact name. If it is a new food that is NOT in the database, invent a clear descriptive name (e.g. "Potato (100g)" or "Avocado (1 medium)").
+2. "matched_database_name" (string | null): The EXACT matching name from the available database foods list above if a close match is found. Otherwise, null. Ignore minor casing and extra space differences when matching.
+3. "weight_g" (number): The parsed weight in grams. (e.g., 1 cup of rice = 150g, 200g chicken = 200g). For naturally counted items like eggs or quantity multipliers, output weight_g as the count (e.g. 2 eggs -> weight_g = 2).
+4. "is_new" (boolean): true if matched_database_name is null (meaning this food doesn't exist in our database list), false if it matches an existing database food.
+5. "estimated_macros" (object | null): If "is_new" is true, provide standard estimated macros per 100g (or per 1 unit if it's naturally a unit/quantity item like "qty"). If "is_new" is false, this must be null.
+   Format of estimated_macros:
+   {
+     "calories": number (estimated calories per 100g or per 1 unit),
+     "protein": number (estimated protein in grams per 100g or per 1 unit),
+     "carbs": number (estimated carbs in grams per 100g or per 1 unit),
+     "fats": number (estimated fats in grams per 100g or per 1 unit),
+     "unit": "g" or "qty" or "cup" (default to "g" if measured in grams/weight, or "qty" if counted as single whole items)
+   }
+
+Return ONLY the raw JSON array. Do not include markdown formatting or conversational text.`;
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
@@ -927,59 +946,116 @@ User Input: "${inputText}"`;
       
       const parsedData = JSON.parse(text);
       
-      const allFoods = [...FOOD_DB, ...customFoods];
+      const normalizeString = (str) => {
+        return str ? str.toLowerCase().replace(/\s+/g, ' ').trim() : '';
+      };
+
+      const fuzzyMatch = (nameA, nameB) => {
+        const normA = normalizeString(nameA);
+        const normB = normalizeString(nameB);
+        
+        if (normA === normB) return true;
+        
+        const cleanA = normA.split('(')[0].trim();
+        const cleanB = normB.split('(')[0].trim();
+        if (cleanA === cleanB) return true;
+        
+        if (normA.includes(normB) || normB.includes(normA)) return true;
+        
+        return false;
+      };
+
       let matchedItems = [];
 
-      parsedData.forEach(item => {
-        let bestMatch = null;
-        for (const food of allFoods) {
-           const foodName = food.name.toLowerCase();
-           const searchName = item.food_name.toLowerCase();
-           if (foodName.includes(searchName) || searchName.includes(foodName.split(' (')[0])) {
-              bestMatch = food;
-              break;
-           }
-        }
+      for (const item of parsedData) {
+        let matchedFood = null;
         
-        if (!bestMatch) {
-            for (const food of allFoods) {
-               if (food.keywords && food.keywords.some(kw => item.food_name.toLowerCase().includes(kw))) {
-                   bestMatch = food;
-                   break;
-               }
-            }
-        }
+        // 1. Try to find match in database/static list using fuzzy match
+        const searchName = item.matched_database_name || item.food_name;
+        matchedFood = allFoods.find(f => fuzzyMatch(f.name, searchName));
         
-        if (bestMatch) {
-            let qty = 1;
-            const weight = item.weight_g;
-            if (bestMatch.name.includes('(100g)')) {
-                qty = weight / 100;
-            } else if (bestMatch.unit === 'cup') {
-                qty = weight / 150;
-            } else if (bestMatch.unit === 'qty') {
-                qty = weight; // Assume AI parsed it as count
+        // 2. Auto-Creation Fallback: If not in database, automatically create it!
+        if (!matchedFood) {
+          const newFoodName = item.food_name;
+          const macros = item.estimated_macros || { calories: 100, protein: 0, carbs: 0, fats: 0, unit: 'g' };
+          
+          const foodToInsert = {
+            name: newFoodName,
+            calories: Number(macros.calories) || 0,
+            protein: Number(macros.protein) || 0,
+            carbs: Number(macros.carbs) || 0,
+            fats: Number(macros.fats) || 0
+          };
+          
+          try {
+            console.log("Auto-creating missing food item:", newFoodName, foodToInsert);
+            const { data, error } = await supabase
+              .from('foods')
+              .insert([foodToInsert])
+              .select();
+              
+            if (error) {
+              console.error("Supabase auto-create food error:", error);
+              matchedFood = {
+                name: newFoodName,
+                ...foodToInsert,
+                unit: macros.unit || 'g'
+              };
+            } else if (data && data.length > 0) {
+              matchedFood = data[0];
+              // Update local state so it is instantly available and displayed in the settings manager
+              setCustomFoods(prev => [data[0], ...prev]);
             } else {
-                qty = weight / 100; // Default heuristic
+              matchedFood = {
+                name: newFoodName,
+                ...foodToInsert,
+                unit: macros.unit || 'g'
+              };
             }
-            
-            matchedItems.push({
-              ...bestMatch,
-              quantity: Number(qty.toFixed(2)),
-              calcCals: bestMatch.calories * qty,
-              calcP: bestMatch.protein * qty,
-              calcC: bestMatch.carbs * qty,
-              calcF: bestMatch.fats * qty
-            });
+          } catch (insertErr) {
+            console.error("Insert transaction failed:", insertErr);
+            matchedFood = {
+              name: newFoodName,
+              ...foodToInsert,
+              unit: macros.unit || 'g'
+            };
+          }
         }
-      });
+        
+        // 3. Heuristic portion calculations
+        if (matchedFood) {
+          let qty = 1;
+          const weight = item.weight_g;
+          const isCup = matchedFood.name.toLowerCase().includes('(1 cup)') || matchedFood.unit === 'cup';
+          const isQty = matchedFood.unit === 'qty' || (!matchedFood.name.toLowerCase().includes('g)') && !matchedFood.name.toLowerCase().includes('cup'));
+          
+          if (matchedFood.name.toLowerCase().includes('(100g)') || matchedFood.name.toLowerCase().includes('100g')) {
+            qty = weight / 100;
+          } else if (isCup) {
+            qty = weight / 150;
+          } else if (isQty) {
+            qty = weight; // Count quantity
+          } else {
+            qty = weight / 100; // Default g weight heuristic
+          }
+          
+          matchedItems.push({
+            ...matchedFood,
+            quantity: Number(qty.toFixed(2)),
+            calcCals: matchedFood.calories * qty,
+            calcP: matchedFood.protein * qty,
+            calcC: matchedFood.carbs * qty,
+            calcF: matchedFood.fats * qty
+          });
+        }
+      }
       
       setParsedItems(matchedItems);
       
       if (matchedItems.length > 0) {
-          await logMeal(matchedItems);
+        await logMeal(matchedItems);
       } else {
-          alert("Could not match any foods from your database.");
+        alert("Could not match or estimate any foods from your input.");
       }
     } catch (err) {
       console.error("AI Parsing Error:", err);
