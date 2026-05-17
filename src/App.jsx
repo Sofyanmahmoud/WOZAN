@@ -216,10 +216,14 @@ function HistoryMealCard({ meal, todayString, date, theme, updateMealPortion, de
       setSwipeOffset(-80);
     } else {
       setSwipeOffset(0);
-      const finalX = e.changedTouches[0].clientX;
-      if (Math.abs(finalX - startX) < 5) {
-        setIsExpanded(!isExpanded);
-      }
+    }
+  };
+
+  const handleCardClick = (e) => {
+    console.log("Card clicked:", meal.id);
+    // Only toggle expansion if the card is not currently swiped/open
+    if (swipeOffset >= -5) {
+      setIsExpanded(!isExpanded);
     }
   };
 
@@ -242,6 +246,7 @@ function HistoryMealCard({ meal, todayString, date, theme, updateMealPortion, de
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onClick={handleCardClick}
         className={`rounded-[2rem] border transition-all duration-300 cursor-pointer z-10 relative ${
           theme === 'dark' 
             ? 'bg-slate-900/45 border-white/5 hover:border-indigo-500/30 backdrop-blur-xl' 
