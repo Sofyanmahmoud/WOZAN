@@ -21,7 +21,12 @@ import {
   Moon,
   Droplet,
   ShoppingCart,
-  Users
+  Users,
+  TrendingUp,
+  Mic,
+  MicOff,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -1052,6 +1057,172 @@ Do not include markdown blocks around the JSON.`;
   );
 }
 
+function TrendForecaster({ meals, targetCalories, theme }) {
+  const [forecast, setForecast] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const generateForecast = async () => {
+    setLoading(true);
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) { setForecast("API Key missing."); setLoading(false); return; }
+
+      const today = new Date();
+      let last7DaysStats = [];
+      for(let i=0; i<7; i++) {
+         const d = new Date(today);
+         d.setDate(d.getDate() - i);
+         const dateStr = d.toISOString().split('T')[0];
+         const dayMeals = meals.filter(m => (m.date || m.created_at.split('T')[0]) === dateStr);
+         const cals = dayMeals.reduce((acc, m) => acc + Number(m.calories || 0), 0);
+         last7DaysStats.push({ date: dateStr, calories: cals });
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      const prompt = `You are a premium AI fitness forecaster.
+The user has a daily calorie target of ${targetCalories} kcal.
+Here are their logged calories for the last 7 days:
+${JSON.stringify(last7DaysStats, null, 2)}
+
+Analyze this consistency trend. Write a short, premium, highly styled 2-3 sentence forecast predicting their progress over the next 2 weeks. Do not use markdown blocks around the text, just return the text. Be encouraging but realistic. Use a few emojis.`;
+
+      const result = await model.generateContent(prompt);
+      setForecast(result.response.text().trim());
+    } catch (e) {
+      console.error(e);
+      setForecast("Failed to generate forecast due to an error.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className={`rounded-[2.5rem] p-6 border shadow-xl relative overflow-hidden backdrop-blur-xl transition-all duration-300 ${
+      theme === 'dark' ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' : 'bg-white/45 border-slate-200/50 shadow-slate-100'
+    }`}>
+      <div className="flex justify-between items-center z-10 relative mb-4">
+        <div className="flex items-center gap-2">
+           <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-500/20 text-indigo-400' : 'bg-indigo-100 text-indigo-600'}`}>
+             <TrendingUp className="w-4 h-4" />
+           </div>
+           <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Trend Forecaster</span>
+        </div>
+      </div>
+      
+      {!forecast ? (
+         <button onClick={generateForecast} disabled={loading} className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-md flex items-center justify-center gap-2 ${
+           theme === 'dark' ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-white border text-indigo-600 hover:bg-slate-50'
+         }`}>
+           {loading ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <TrendingUp className="w-5 h-5" />}
+           {loading ? "Analyzing 7-Day Data..." : "Reveal 14-Day Forecast"}
+         </button>
+      ) : (
+         <div className="space-y-3">
+           <p className={`text-sm font-medium leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+             {forecast}
+           </p>
+           <button onClick={generateForecast} disabled={loading} className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}>
+             {loading ? "Updating..." : "Recalculate"}
+           </button>
+         </div>
+      )}
+    </div>
+  );
+}
+
+function InterlockingMacroBalancer({ targetCalories, pTarget, cTarget, fTarget, setMacroTargets, theme }) {
+  const [locked, setLocked] = useState({ p: false, c: false, f: false });
+
+  const handleSliderChange = (changedKey, newValue) => {
+    const currentMacros = { p: pTarget, c: cTarget, f: fTarget };
+    const calsDiff = newValue * (changedKey === 'f' ? 9 : 4) - currentMacros[changedKey] * (changedKey === 'f' ? 9 : 4);
+    
+    let otherKeys = ['p', 'c', 'f'].filter(k => k !== changedKey);
+    let unlockedKeys = otherKeys.filter(k => !locked[k]);
+
+    if (unlockedKeys.length === 0) return;
+
+    const newMacros = { ...currentMacros, [changedKey]: newValue };
+    let remainingCalsToAbsorb = -calsDiff; 
+
+    for (let i = 0; i < unlockedKeys.length; i++) {
+       const key = unlockedKeys[i];
+       const calPerGram = key === 'f' ? 9 : 4;
+       let calsForThisKey = i === unlockedKeys.length - 1 ? remainingCalsToAbsorb : remainingCalsToAbsorb / 2;
+       let newGrams = Math.max(0, Math.round(newMacros[key] + (calsForThisKey / calPerGram)));
+       let actualCalsAbsorbed = (newGrams - newMacros[key]) * calPerGram;
+       newMacros[key] = newGrams;
+       remainingCalsToAbsorb -= actualCalsAbsorbed;
+    }
+
+    setMacroTargets(newMacros);
+  };
+
+  const toggleLock = (key) => {
+    const currentlyLocked = Object.values(locked).filter(Boolean).length;
+    if (!locked[key] && currentlyLocked >= 2) return;
+    setLocked({ ...locked, [key]: !locked[key] });
+  };
+
+  const renderSlider = (key, label, color, maxGrams, val) => {
+    const isLocked = locked[key];
+    const pct = Math.round(((val * (key === 'f' ? 9 : 4)) / targetCalories) * 100);
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button onClick={() => toggleLock(key)} className={`p-1.5 rounded-lg transition-all ${isLocked ? 'bg-red-500/20 text-red-500' : theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-500'}`}>
+              {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+            </button>
+            <span className={`text-[10px] font-black uppercase tracking-widest ${color}`}>{label}</span>
+          </div>
+          <span className={`font-black text-sm ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{val}g <span className={`text-[10px] font-bold ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>({pct}%)</span></span>
+        </div>
+        <input 
+          type="range"
+          min="0"
+          max={maxGrams}
+          value={val}
+          onChange={(e) => handleSliderChange(key, Number(e.target.value))}
+          disabled={isLocked}
+          className={`w-full h-2 rounded-lg appearance-none cursor-pointer transition-all focus:outline-none ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : ''} ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'}`}
+          style={{ accentColor: isLocked ? 'gray' : undefined }}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <div className={`rounded-[2.5rem] p-6 border shadow-2xl backdrop-blur-xl transition-all duration-300 ${
+      theme === 'dark' ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' : 'bg-white/40 border-slate-200/50 shadow-slate-100'
+    }`}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-950/40 text-indigo-400' : 'bg-indigo-50 text-indigo-650'}`}>
+            <Lock className="w-4 h-4 text-indigo-500" />
+          </div>
+          <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+            Interlocking Balancer
+          </span>
+        </div>
+        <div className="text-right">
+          <span className={`block text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-indigo-650'}`}>
+            {(pTarget * 4) + (cTarget * 4) + (fTarget * 9)} kcal
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {renderSlider('p', 'Protein', 'text-indigo-500', Math.round(targetCalories / 4), pTarget)}
+        {renderSlider('c', 'Carbs', 'text-emerald-500', Math.round(targetCalories / 4), cTarget)}
+        {renderSlider('f', 'Fats', 'text-amber-500', Math.round(targetCalories / 9), fTarget)}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // --- STATE MANAGEMENT ---
   const [meals, setMeals] = useState([]);
@@ -1059,14 +1230,33 @@ function App() {
     return Number(localStorage.getItem('wozan-target-calories')) || 3000;
   });
 
+  const [macroTargets, setMacroTargets] = useState(() => {
+    const saved = localStorage.getItem('wozan-macro-targets');
+    return saved ? JSON.parse(saved) : null;
+  });
+
   const TARGET_CALORIES = targetCalories;
-  const PROTEIN_TARGET = Math.round((targetCalories * 0.20) / 4);
-  const CARBS_TARGET = Math.round((targetCalories * 0.50) / 4);
-  const FATS_TARGET = Math.round((targetCalories * 0.30) / 9);
+  const PROTEIN_TARGET = macroTargets ? macroTargets.p : Math.round((targetCalories * 0.20) / 4);
+  const CARBS_TARGET = macroTargets ? macroTargets.c : Math.round((targetCalories * 0.50) / 4);
+  const FATS_TARGET = macroTargets ? macroTargets.f : Math.round((targetCalories * 0.30) / 9);
 
   useEffect(() => {
     localStorage.setItem('wozan-target-calories', targetCalories);
-  }, [targetCalories]);
+    if (macroTargets) {
+      const currentCals = (macroTargets.p * 4) + (macroTargets.c * 4) + (macroTargets.f * 9);
+      if (Math.abs(currentCals - targetCalories) > 100) {
+        setMacroTargets(null);
+      }
+    }
+  }, [targetCalories, macroTargets]);
+
+  useEffect(() => {
+    if (macroTargets) {
+      localStorage.setItem('wozan-macro-targets', JSON.stringify(macroTargets));
+    } else {
+      localStorage.removeItem('wozan-macro-targets');
+    }
+  }, [macroTargets]);
 
   const [customFoods, setCustomFoods] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1085,6 +1275,61 @@ function App() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [isParsingAI, setIsParsingAI] = useState(false);
   const [isCoachOpen, setIsCoachOpen] = useState(false);
+
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Your browser does not support Speech Recognition. Try Chrome or Edge.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setIsListening(true);
+
+    let currentTranscript = '';
+    recognition.onresult = (event) => {
+      let finalTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          setInputText(event.results[i][0].transcript);
+        }
+      }
+      if (finalTranscript) {
+        currentTranscript = finalTranscript;
+        setInputText(finalTranscript);
+      }
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech error", e.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      if (currentTranscript.trim().length > 2) {
+        parseWithAI(currentTranscript);
+      }
+    };
+
+    setInputText('');
+    recognition.start();
+  };
 
   // Theme State & Persistence
   const [theme, setTheme] = useState(() => {
@@ -1172,8 +1417,9 @@ function App() {
     setInputText(e.target.value);
   };
 
-  const parseWithAI = async () => {
-    if (!inputText.trim()) return;
+  const parseWithAI = async (customText = null) => {
+    const textToParse = typeof customText === 'string' ? customText : inputText;
+    if (!textToParse.trim()) return;
     setIsParsingAI(true);
     
     try {
@@ -1191,7 +1437,7 @@ function App() {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       const prompt = `You are a strict food parsing nutritional API.
-Analyze the user's text: "${inputText}"
+Analyze the user's text: "${textToParse}"
 
 We already have a database of foods. Here is the list of exact food names currently available:
 ${JSON.stringify(availableNames)}
@@ -1745,6 +1991,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
             {/* Weekly Consistency Matrix */}
             <WeeklyMatrix meals={meals} theme={theme} targetCalories={TARGET_CALORIES} />
 
+            {/* Predictive Trend Forecaster */}
+            <TrendForecaster meals={meals} targetCalories={TARGET_CALORIES} theme={theme} />
+
             {/* Custom Glowing Calorie Progress Ring */}
             <CalorieProgressRing current={stats.calories} target={TARGET_CALORIES} theme={theme} />
 
@@ -1819,25 +2068,32 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
                       ? 'bg-slate-900/40 border-white/5 text-white placeholder-slate-700 focus:border-indigo-500' 
                       : 'bg-white/45 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500 shadow-md'
                   }`}
-                  disabled={isParsingAI}
+                  disabled={isParsingAI || isListening}
                 />
-                <div className="absolute right-6 bottom-6">
+                <div className="absolute right-6 bottom-6 flex gap-3">
                   <button 
-                    onClick={parseWithAI}
-                    disabled={inputText.length < 2 || isParsingAI}
+                    onClick={toggleListening}
+                    disabled={isParsingAI}
                     className={`p-3 rounded-2xl flex items-center justify-center transition-all shadow-lg ${
-                      inputText.length > 1 && !isParsingAI 
-                        ? 'bg-indigo-600 text-white hover:bg-indigo-500 active:scale-95 cursor-pointer' 
+                      isListening 
+                        ? 'bg-rose-500 text-white animate-pulse' 
                         : theme === 'dark'
-                          ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                          ? 'bg-slate-800 text-slate-400 hover:text-white'
+                          : 'bg-slate-200 text-slate-600 hover:bg-white'
                     }`}
                   >
-                    {isParsingAI ? (
-                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                    ) : (
-                      <Utensils className="w-6 h-6" />
-                    )}
+                    {isListening ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                  </button>
+                  <button 
+                    onClick={() => parseWithAI()}
+                    disabled={inputText.length < 2 || isParsingAI || isListening}
+                    className={`p-3 rounded-2xl shadow-[0_0_15px_rgba(79,70,229,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center justify-center ${
+                      inputText.length >= 2 && !isParsingAI && !isListening
+                        ? 'bg-indigo-600 text-white' 
+                        : theme === 'dark' ? 'bg-slate-800 text-slate-600' : 'bg-slate-200 text-slate-400'
+                    }`}
+                  >
+                    {isParsingAI ? <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Zap className="w-6 h-6 fill-current" />}
                   </button>
                 </div>
               </div>
@@ -2037,6 +2293,16 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
 
             {/* Interactive Calorie & Macro Target Adjuster */}
             <CalorieGoalAdjuster value={targetCalories} onChange={setTargetCalories} theme={theme} />
+
+            {/* Interactive Macro Balancer */}
+            <InterlockingMacroBalancer 
+              targetCalories={targetCalories}
+              pTarget={PROTEIN_TARGET}
+              cTarget={CARBS_TARGET}
+              fTarget={FATS_TARGET}
+              setMacroTargets={setMacroTargets}
+              theme={theme}
+            />
 
             <form onSubmit={handleAddCustomFood} className={`rounded-[2.5rem] p-8 border shadow-2xl space-y-6 transition-all duration-300 ${
               theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100 shadow-sm'
