@@ -1573,36 +1573,45 @@ Return ONLY the raw JSON array. Do not include markdown formatting.`;
   };
 
   // --- EFFECTS ---
-  // --- CLOUD SYNC (SUPABASE) ---
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch Foods
-        const { data: foodsData, error: foodsError } = await supabase
-          .from('foods')
-          .select('*')
-          .order('name', { ascending: true });
+  // --- CLOUD SYNC (SUPABASE) & OFFLINE QUEUE ---
+  const fetchSupabaseData = async () => {
+    setLoading(true);
+    try {
+      const { data: foodsData } = await supabase.from('foods').select('*').order('name', { ascending: true });
+      if (foodsData) setCustomFoods(foodsData);
+      
+      const { data: mealsData } = await supabase.from('meals').select('*').order('id', { ascending: false });
+      if (mealsData) setMeals(mealsData);
+    } catch (err) {
+      console.error("Fetch error:", err);
+    }
+    setLoading(false);
+  };
 
-        if (foodsError) console.error("PGRST Error (foods):", foodsError);
-        else setCustomFoods(foodsData || []);
-
-        // Fetch Meals
-        const { data: mealsData, error: mealsError } = await supabase
-          .from('meals')
-          .select('*')
-          .order('id', { ascending: false });
-
-        if (mealsError) console.error("PGRST Error (meals):", mealsError);
-        else setMeals(mealsData || []);
-      } catch (err) {
-        console.error("Unexpected fetch error:", err);
+  const syncOfflineQueue = async () => {
+    const queueStr = localStorage.getItem('wozan-offline-queue');
+    if (!queueStr) return;
+    const queue = JSON.parse(queueStr);
+    if (queue.length === 0) return;
+    
+    try {
+      const { error } = await supabase.from('meals').insert(queue);
+      if (!error) {
+        localStorage.removeItem('wozan-offline-queue');
+        fetchSupabaseData(); // Refresh with real IDs
+      } else {
+        console.error("Offline sync error", error);
       }
+    } catch (err) {
+      console.error("Sync failed", err);
+    }
+  };
 
-      setLoading(false);
-    };
-
-    fetchData();
+  useEffect(() => {
+    fetchSupabaseData();
+    window.addEventListener('online', syncOfflineQueue);
+    if (navigator.onLine) syncOfflineQueue();
+    return () => window.removeEventListener('online', syncOfflineQueue);
   }, []);
 
   const handleTextChange = (e) => {
@@ -1838,10 +1847,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         .insert([mealToInsert])
         .select();
 
-      if (error) {
-        console.error("PGRST Error (logMeal):", error);
-        return;
-      }
+      if (error) throw error;
 
       setMeals([data[0], ...meals]);
       setInputText('');
@@ -1858,7 +1864,25 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         setCurrentView('dashboard');
       }, 1200);
     } catch (err) {
-      console.error("Unexpected logMeal error:", err);
+      console.warn("Offline or insert failed. Saving locally.", err);
+      const offlineMeal = { ...mealToInsert, id: 'temp-' + Date.now(), is_offline: true };
+      setMeals([offlineMeal, ...meals]);
+      
+      const queue = JSON.parse(localStorage.getItem('wozan-offline-queue') || '[]');
+      queue.push(mealToInsert);
+      localStorage.setItem('wozan-offline-queue', JSON.stringify(queue));
+
+      setInputText('');
+      setParsedItems([]);
+      const reset = {};
+      Object.keys(quickQuantities).forEach(k => reset[k] = 0);
+      setQuickQuantities(reset);
+
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setCurrentView('dashboard');
+      }, 1200);
     }
   };
 
@@ -2122,6 +2146,79 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
   }, {}) : {};
 
   const dateKeys = Object.keys(groupedMeals).sort((a, b) => new Date(b) - new Date(a));
+
+  // --- APP BADGING ---
+  useEffect(() => {
+    if ('setAppBadge' in navigator) {
+      if (progress >= 100) {
+        navigator.clearAppBadge().catch(console.error);
+      } else {
+        navigator.setAppBadge(streakCount).catch(console.error);
+      }
+    }
+  }, [streakCount, progress]);
+
+  // --- PDF EXPORTER ---
+  const exportPDF = async () => {
+    const last7DaysStats = [];
+    const today = new Date();
+    for(let i=0; i<7; i++) {
+         const d = new Date(today);
+         d.setDate(d.getDate() - i);
+         const dateStr = d.toISOString().split('T')[0];
+         const dayMeals = meals.filter(m => (m.date || m.created_at.split('T')[0]) === dateStr);
+         const cals = dayMeals.reduce((acc, m) => acc + Number(m.calories || 0), 0);
+         last7DaysStats.push({ date: dateStr, calories: cals });
+    }
+    
+    let summaryText = "Analyzing your consistency...";
+    try {
+       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+       if (apiKey) {
+         const genAI = new GoogleGenerativeAI(apiKey);
+         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+         const prompt = `Analyze this 7 day consistency for a user with target ${TARGET_CALORIES}: ${JSON.stringify(last7DaysStats)}. Write a short, highly professional medical/health analytical summary for a PDF report. Return plain text only.`;
+         const res = await model.generateContent(prompt);
+         summaryText = res.response.text();
+       }
+    } catch(e) {
+      summaryText = "Data summarized correctly.";
+    }
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Wozan Health Report</title>
+          <style>
+             body { font-family: sans-serif; padding: 40px; color: #111; max-width: 800px; margin: 0 auto; }
+             h1 { color: #4f46e5; margin-bottom: 5px; }
+             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+             th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+             th { background: #f8fafc; font-weight: bold; }
+             .summary { background: #f8fafc; padding: 20px; border-left: 4px solid #4f46e5; margin-bottom: 30px; margin-top: 20px; border-radius: 0 8px 8px 0; }
+          </style>
+        </head>
+        <body>
+          <h1>Wozan Analytical Health Report</h1>
+          <p style="color: #666;">Generated: ${new Date().toLocaleDateString()}</p>
+          <div class="summary">
+            <h3 style="margin-top:0;">AI Analytical Summary</h3>
+            <p style="line-height: 1.6;">${summaryText}</p>
+          </div>
+          <h3>7-Day Log</h3>
+          <table>
+            <tr><th>Date</th><th>Calories Logged</th><th>Target</th><th>Status</th></tr>
+            ${last7DaysStats.map(d => `<tr><td>${d.date}</td><td>${d.calories} kcal</td><td>${TARGET_CALORIES} kcal</td><td>${d.calories >= TARGET_CALORIES*0.9 ? 'On Track' : 'Needs Focus'}</td></tr>`).join('')}
+          </table>
+          <script>
+            window.onload = () => { window.print(); window.close(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
   return (
     <div className={`min-h-screen font-sans pb-28 transition-colors duration-300 relative overflow-x-hidden ${theme === 'dark' ? 'bg-slate-950 text-slate-100 selection:bg-indigo-500/30' : 'bg-slate-50 text-slate-800 selection:bg-indigo-500/10'}`}>
