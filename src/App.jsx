@@ -1244,6 +1244,11 @@ function SandboxView({ meals, targetCalories, proteinTarget, carbsTarget, fatsTa
     if (!simText.trim()) return;
     setIsSimulating(true);
     try {
+      // Strip common hypothetical prefixes
+      let sanitizedText = simText.toLowerCase()
+        .replace(/^(what if i (eat|have|drink) |if i (eat|have|drink) |suppose i (eat|have|drink) |say i (eat|have|drink) )/i, '')
+        .trim();
+
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) { alert("API Key missing"); setIsSimulating(false); return; }
       
@@ -1251,10 +1256,13 @@ function SandboxView({ meals, targetCalories, proteinTarget, carbsTarget, fatsTa
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       
       const availableNames = customFoods.map(f => f.name);
-      const prompt = `You are a strict food parsing nutritional API. Analyze: "${simText}"
+      const prompt = `You are a strict food parsing nutritional API. Analyze the following hypothetical food entry: "${sanitizedText}"
 Database items: ${JSON.stringify(availableNames)}
+
+You are analyzing a hypothetical food entry. If the food is not in the user's local database array, do NOT return 0. Use your internal knowledge to estimate standard nutritional values for the ENTIRE specified item or portion (e.g., a whole large pizza, 3 burgers) and return those macro values directly.
+
 Estimate the total combined macros of the entire input. 
-Return ONLY a JSON object: { "calories": number, "protein": number, "carbs": number, "fats": number }`;
+Return ONLY a JSON object exactly matching this schema: { "calories": number, "protein": number, "carbs": number, "fats": number }`;
 
       const result = await model.generateContent(prompt);
       let text = result.response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -1262,6 +1270,7 @@ Return ONLY a JSON object: { "calories": number, "protein": number, "carbs": num
       
       setSimDiff(diff);
     } catch (e) {
+      console.error(e);
       alert("Simulation failed.");
     }
     setIsSimulating(false);
