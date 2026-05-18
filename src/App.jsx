@@ -26,7 +26,9 @@ import {
   Mic,
   MicOff,
   Lock,
-  Unlock
+  Unlock,
+  Camera,
+  Layers
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -1223,6 +1225,107 @@ function InterlockingMacroBalancer({ targetCalories, pTarget, cTarget, fTarget, 
   );
 }
 
+function SandboxView({ meals, targetCalories, proteinTarget, carbsTarget, fatsTarget, customFoods, theme }) {
+  const [stats, setStats] = useState({ calories: 0, protein: 0, carbs: 0, fats: 0 });
+  
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayMeals = meals.filter(m => (m.date || m.created_at.split('T')[0]) === todayStr);
+    let cals = 0, p = 0, c = 0, f = 0;
+    todayMeals.forEach(m => { cals += m.calories; p += m.protein; c += m.carbs; f += m.fats; });
+    setStats({ calories: cals, protein: p, carbs: c, fats: f });
+  }, [meals]);
+
+  const [simText, setSimText] = useState("");
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simDiff, setSimDiff] = useState(null);
+
+  const simulateLog = async () => {
+    if (!simText.trim()) return;
+    setIsSimulating(true);
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) { alert("API Key missing"); setIsSimulating(false); return; }
+      
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      
+      const availableNames = customFoods.map(f => f.name);
+      const prompt = `You are a strict food parsing nutritional API. Analyze: "${simText}"
+Database items: ${JSON.stringify(availableNames)}
+Estimate the total combined macros of the entire input. 
+Return ONLY a JSON object: { "calories": number, "protein": number, "carbs": number, "fats": number }`;
+
+      const result = await model.generateContent(prompt);
+      let text = result.response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
+      const diff = JSON.parse(text);
+      
+      setSimDiff(diff);
+    } catch (e) {
+      alert("Simulation failed.");
+    }
+    setIsSimulating(false);
+  };
+
+  const currentStats = {
+    calories: stats.calories + (simDiff ? simDiff.calories : 0),
+    protein: stats.protein + (simDiff ? simDiff.protein : 0),
+    carbs: stats.carbs + (simDiff ? simDiff.carbs : 0),
+    fats: stats.fats + (simDiff ? simDiff.fats : 0)
+  };
+
+  return (
+    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      <div>
+        <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Sandbox</h2>
+        <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Macro Strategy Simulator</p>
+      </div>
+
+      {/* Clone Progress Ring */}
+      <CalorieProgressRing current={currentStats.calories} target={targetCalories} theme={theme} />
+
+      {/* Clone Macro Circles */}
+      <div className="grid grid-cols-3 gap-3">
+        <MacroCircle label="Protein" current={currentStats.protein} target={proteinTarget} colorClass="text-indigo-500" strokeColor="#6366f1" theme={theme} />
+        <MacroCircle label="Carbs" current={currentStats.carbs} target={carbsTarget} colorClass="text-emerald-500" strokeColor="#10b981" theme={theme} />
+        <MacroCircle label="Fats" current={currentStats.fats} target={fatsTarget} colorClass="text-amber-500" strokeColor="#f59e0b" theme={theme} />
+      </div>
+
+      <div className={`rounded-[2.5rem] p-6 border shadow-xl backdrop-blur-xl ${theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'}`}>
+        <div className="flex items-center gap-2 mb-4">
+          <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-500">
+            <Layers className="w-4 h-4" />
+          </div>
+          <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>What-If Scenario</span>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <input 
+            type="text"
+            value={simText}
+            onChange={e => setSimText(e.target.value)}
+            placeholder="e.g. If I eat a large pizza..."
+            className={`flex-1 bg-transparent border-b-2 px-2 py-2 focus:outline-none transition-all ${theme === 'dark' ? 'border-slate-800 text-white focus:border-indigo-500' : 'border-slate-200 text-slate-800 focus:border-indigo-500'}`}
+            disabled={isSimulating}
+          />
+          <button 
+            onClick={simulateLog}
+            disabled={!simText.trim() || isSimulating}
+            className={`p-3 rounded-xl transition-all font-black text-xs ${simText.trim() && !isSimulating ? 'bg-indigo-600 text-white hover:bg-indigo-500 active:scale-95' : theme === 'dark' ? 'bg-slate-800 text-slate-600' : 'bg-slate-200 text-slate-400'}`}
+          >
+            {isSimulating ? "..." : "Simulate"}
+          </button>
+        </div>
+        {simDiff && (
+          <div className={`mt-4 p-3 rounded-xl text-xs font-bold text-center ${theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>
+            Impact: +{Math.round(simDiff.calories)} kcal (+{Math.round(simDiff.protein)}P / +{Math.round(simDiff.carbs)}C / +{Math.round(simDiff.fats)}F)
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // --- STATE MANAGEMENT ---
   const [meals, setMeals] = useState([]);
@@ -1331,10 +1434,90 @@ function App() {
     recognition.start();
   };
 
+  // --- CAMERA & MULTIMODAL AI ---
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  const startCamera = async () => {
+    setIsCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    } catch (err) {
+      alert("Camera access denied or unavailable.");
+      setIsCameraOpen(false);
+    }
+  };
+
+  const capturePhotoAndParse = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const base64Image = canvas.toDataURL('image/jpeg').split(',')[1];
+    
+    // Stop camera
+    const stream = video.srcObject;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    setIsCameraOpen(false);
+    
+    setIsParsingAI(true);
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) throw new Error("API Key missing");
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      const allFoods = [...FOOD_DB, ...customFoods];
+      const availableNames = allFoods.map(f => f.name);
+
+      const prompt = `You are a strict food parsing nutritional API with vision capabilities.
+Analyze the user's provided image of their food. Estimate the foods and weights on the plate.
+
+We already have a database of foods. Here is the list of exact food names currently available:
+${JSON.stringify(availableNames)}
+
+Your task is to parse the visually identified foods into a JSON array of objects.
+For EACH food item, you must output an object with these keys:
+1. "food_name" (string): The name of the food item. If it maps closely to an item in the database, use that exact name. If new, invent a clear descriptive name.
+2. "matched_database_name" (string | null): The EXACT matching name from the database list if a close match is found. Otherwise, null.
+3. "weight_g" (number): The estimated weight in grams, or count if applicable.
+4. "is_new" (boolean): true if matched_database_name is null, false if it matches.
+5. "estimated_macros" (object | null): If "is_new" is true, provide estimated macros { calories, protein, carbs, fats, unit } per 100g/unit. If "is_new" is false, this must be null.
+
+Return ONLY the raw JSON array. Do not include markdown formatting.`;
+
+      const result = await model.generateContent([
+         { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
+         prompt
+      ]);
+      let text = result.response.text();
+      text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(text);
+      
+      await processParsedData(parsedData);
+    } catch (err) {
+      console.error(err);
+      alert("Image AI parsing failed. " + err.message);
+    }
+    setIsParsingAI(false);
+  };
+
   // Theme State & Persistence
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('wozan-theme') || 'dark';
   });
+
+  const [timeOfDay, setTimeOfDay] = useState('morning');
+  useEffect(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) setTimeOfDay('morning');
+    else if (hour < 20) setTimeOfDay('afternoon');
+    else setTimeOfDay('evening');
+  }, []);
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -1467,6 +1650,17 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
       
       const parsedData = JSON.parse(text);
+      await processParsedData(parsedData);
+    } catch (err) {
+      console.error("AI Parsing Error:", err);
+      alert("Failed to parse with AI. " + err.message);
+    }
+    setIsParsingAI(false);
+  };
+
+  const processParsedData = async (parsedData) => {
+    const allFoods = [...FOOD_DB, ...customFoods];
+    try {
       
       const normalizeString = (str) => {
         return str ? str.toLowerCase().replace(/\s+/g, ' ').trim() : '';
@@ -1580,10 +1774,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         alert("Could not match or estimate any foods from your input.");
       }
     } catch (err) {
-      console.error("AI Parsing Error:", err);
-      alert("Failed to parse with AI. " + err.message);
+      console.error("Data Processing Error:", err);
+      alert("Failed to process parsed data. " + err.message);
     }
-    setIsParsingAI(false);
   };
 
   const logMeal = async (itemsToLog = null) => {
@@ -1788,6 +1981,10 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
 
   // --- ADVICE SYSTEM ---
   const dynamicAdvice = useMemo(() => {
+    let prefix = "Fuel up for the day! ";
+    if (timeOfDay === 'evening') prefix = "Time to recover and build! ";
+    else if (timeOfDay === 'afternoon') prefix = "Keep the momentum going! ";
+
     const hour = new Date().getHours();
     
     // Calculate fat limit implicitly if not defined:
@@ -1796,7 +1993,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
     // Rule C (On Track)
     if (Math.abs(TARGET_CALORIES - stats.calories) <= 100) {
       return {
-        text: "Perfect execution today! Your macros are dialed in for recovery.",
+        text: prefix + "Perfect execution today! Your macros are dialed in for recovery.",
         icon: <CheckCircle2 className="w-5 h-5 text-indigo-400" />
       };
     }
@@ -1814,7 +2011,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       }
       const foodName = highestCalFood ? highestCalFood.name.split(' (')[0] : 'Peanut Butter';
       return {
-        text: `You have room to grow! Consider adding a portion of ${foodName} to hit your target.`,
+        text: prefix + `You have room to grow! Consider adding a portion of ${foodName} to hit your target.`,
         icon: <Coffee className="w-5 h-5 text-amber-400" />
       };
     }
@@ -1822,31 +2019,39 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
     // Rule B (Macro Mismatch)
     if (stats.fats >= (FAT_TARGET * 0.8) && stats.protein < PROTEIN_TARGET * 0.8) {
       return {
-        text: "Macro Alert: You're hitting your fat limits. Focus on clean protein like Chicken Breast for the rest of the day.",
+        text: prefix + "Macro Alert: You're hitting your fat limits. Focus on clean protein like Chicken Breast for the rest of the day.",
         icon: <AlertCircle className="w-5 h-5 text-rose-400" />
+      };
+    }
+
+    // Morning specific context
+    if (timeOfDay === 'morning' && stats.calories < TARGET_CALORIES * 0.2) {
+      return {
+        text: prefix + "Get those morning calories in. A big breakfast sets the tone for mass building.",
+        icon: <Zap className="w-5 h-5 text-indigo-400" />
       };
     }
 
     // Fallback Advice
     if (stats.protein < PROTEIN_TARGET * 0.8) {
       return {
-        text: "Eat some Steak or a Protein Shake to hit your muscle recovery goal.",
+        text: prefix + "Eat some Steak or a Protein Shake to hit your muscle recovery goal.",
         icon: <Zap className="w-5 h-5 text-indigo-400" />
       };
     }
 
     if (stats.carbs < CARBS_TARGET * 0.8) {
       return {
-        text: "Add Oats or Rice to your next meal for training energy.",
+        text: prefix + "Add Oats or Rice to your next meal for training energy.",
         icon: <Flame className="w-5 h-5 text-emerald-400" />
       }
     }
 
     return {
-      text: "You're on track! Keep hitting those macros for consistent gains.",
+      text: prefix + "You're on track! Keep hitting those macros for consistent gains.",
       icon: <CheckCircle2 className="w-5 h-5 text-indigo-400" />
     };
-  }, [stats.calories, stats.protein, stats.carbs, stats.fats, customFoods]);
+  }, [stats.calories, stats.protein, stats.carbs, stats.fats, customFoods, timeOfDay, TARGET_CALORIES, PROTEIN_TARGET, CARBS_TARGET]);
 
   const currentAdvice = dynamicAdvice;
 
@@ -2072,8 +2277,19 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
                 />
                 <div className="absolute right-6 bottom-6 flex gap-3">
                   <button 
+                    onClick={startCamera}
+                    disabled={isParsingAI || isCameraOpen}
+                    className={`p-3 rounded-2xl flex items-center justify-center transition-all shadow-lg ${
+                      theme === 'dark'
+                        ? 'bg-slate-800 text-slate-400 hover:text-white'
+                        : 'bg-slate-200 text-slate-600 hover:bg-white'
+                    }`}
+                  >
+                    <Camera className="w-6 h-6" />
+                  </button>
+                  <button 
                     onClick={toggleListening}
-                    disabled={isParsingAI}
+                    disabled={isParsingAI || isCameraOpen}
                     className={`p-3 rounded-2xl flex items-center justify-center transition-all shadow-lg ${
                       isListening 
                         ? 'bg-rose-500 text-white animate-pulse' 
@@ -2086,7 +2302,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
                   </button>
                   <button 
                     onClick={() => parseWithAI()}
-                    disabled={inputText.length < 2 || isParsingAI || isListening}
+                    disabled={inputText.length < 2 || isParsingAI || isListening || isCameraOpen}
                     className={`p-3 rounded-2xl shadow-[0_0_15px_rgba(79,70,229,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center justify-center ${
                       inputText.length >= 2 && !isParsingAI && !isListening
                         ? 'bg-indigo-600 text-white' 
@@ -2097,6 +2313,33 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
                   </button>
                 </div>
               </div>
+
+              {/* Camera Preview Modal */}
+              {isCameraOpen && (
+                <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in ${theme === 'dark' ? 'bg-slate-950/80' : 'bg-slate-900/40'}`}>
+                  <div className={`w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden p-6 relative ${theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className={`font-black text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Food Camera</h3>
+                      <button onClick={() => { setIsCameraOpen(false); videoRef.current?.srcObject?.getTracks().forEach(t=>t.stop()); }} className="p-2 rounded-full bg-red-500/10 text-red-500">
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="relative rounded-2xl overflow-hidden bg-black mb-4 aspect-square">
+                      <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                      <canvas ref={canvasRef} className="hidden" />
+                    </div>
+                    <button 
+                      onClick={capturePhotoAndParse}
+                      disabled={isParsingAI}
+                      className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black hover:bg-indigo-500 active:scale-95 transition-all shadow-lg flex items-center justify-center gap-2"
+                    >
+                      {isParsingAI ? "Processing Image..." : "Capture & Parse"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Quick Add Section */}
@@ -2447,6 +2690,19 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         {currentView === 'planner' && (
           <PlannerView customFoods={customFoods} foodDb={FOOD_DB} theme={theme} targets={{ calories: TARGET_CALORIES, protein: PROTEIN_TARGET, carbs: CARBS_TARGET, fats: FATS_TARGET }} />
         )}
+
+        {/* VIEW: SANDBOX */}
+        {currentView === 'sandbox' && (
+          <SandboxView 
+            meals={meals} 
+            targetCalories={TARGET_CALORIES} 
+            proteinTarget={PROTEIN_TARGET} 
+            carbsTarget={CARBS_TARGET} 
+            fatsTarget={FATS_TARGET} 
+            customFoods={[...FOOD_DB, ...customFoods]}
+            theme={theme} 
+          />
+        )}
       </main>
 
       {/* Floating AI Coach Button */}
@@ -2499,6 +2755,14 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         }`}>
           <ShoppingCart className={`w-6 h-6 ${currentView === 'planner' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
           <span className="text-[9px] font-black tracking-widest uppercase">Plan</span>
+        </button>
+        <button onClick={() => setCurrentView('sandbox')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
+          currentView === 'sandbox' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
+            : 'text-slate-500 dark:text-slate-600'
+        }`}>
+          <Layers className={`w-6 h-6 ${currentView === 'sandbox' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
+          <span className="text-[9px] font-black tracking-widest uppercase">Sim</span>
         </button>
         <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
           currentView === 'history' 
