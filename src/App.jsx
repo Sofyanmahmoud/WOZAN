@@ -18,7 +18,10 @@ import {
   Coffee,
   Info,
   Sun,
-  Moon
+  Moon,
+  Droplet,
+  ShoppingCart,
+  Users
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -785,6 +788,177 @@ function MacroBreakdown({ stats, theme }) {
   );
 }
 
+function HydrationTracker({ intake, setIntake, theme }) {
+  const target = 2000;
+  const percentage = Math.min((intake / target) * 100, 100);
+  
+  return (
+    <div className={`rounded-[2.5rem] p-6 border shadow-xl relative overflow-hidden backdrop-blur-xl transition-all duration-300 ${
+      theme === 'dark' ? 'bg-slate-900/40 border-white/5 shadow-blue-950/20' : 'bg-white/45 border-slate-200/50 shadow-slate-100'
+    }`}>
+      <div className="flex justify-between items-center z-10 relative mb-4">
+        <div className="flex items-center gap-2">
+           <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-500">
+             <Droplet className="w-4 h-4" />
+           </div>
+           <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Hydration Canvas</span>
+        </div>
+        <span className="text-sm font-black text-blue-500">{intake} / {target} ml</span>
+      </div>
+
+      <div className={`relative w-full h-40 rounded-[2rem] overflow-hidden border cursor-pointer shadow-inner transition-all active:scale-95 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-100 border-slate-300'}`} onClick={() => setIntake(prev => prev + 250)}>
+        <div 
+          className="absolute bottom-0 w-full transition-all duration-1000 ease-out flex items-center justify-center bg-blue-500"
+          style={{ height: `${percentage}%` }}
+        >
+          <div className="absolute w-[200%] aspect-square bg-blue-400/40 rounded-[45%] bottom-[90%] left-[-50%] animate-[spin_6s_linear_infinite]" />
+          <div className="absolute w-[200%] aspect-square bg-blue-500/40 rounded-[40%] bottom-[95%] left-[-50%] animate-[spin_8s_linear_infinite]" />
+        </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
+          <span className="text-2xl font-black text-white drop-shadow-md">Tap to Drink</span>
+          <span className="text-sm font-bold text-white/90">+250ml</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SquadView({ streak, progress, theme }) {
+  const squad = [
+    { id: 1, name: "Alex C.", streak: 12, completion: 95, avatar: "A" },
+    { id: 2, name: "Sarah M.", streak: 8, completion: 88, avatar: "S" },
+    { id: 'me', name: "You", streak: streak, completion: Math.round(progress), avatar: "Y", isUser: true },
+    { id: 3, name: "Mike T.", streak: 5, completion: 76, avatar: "M" },
+  ].sort((a, b) => b.streak - a.streak || b.completion - a.completion);
+
+  return (
+    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      <div>
+        <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Squad</h2>
+        <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Social Accountability Circle</p>
+      </div>
+      <div className={`rounded-[2.5rem] p-6 border shadow-xl backdrop-blur-xl ${theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'}`}>
+        <div className="space-y-4">
+          {squad.map((user) => (
+            <div key={user.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${user.isUser ? (theme === 'dark' ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-indigo-50 border-indigo-200') : (theme === 'dark' ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200')}`}>
+              <div className="flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${user.isUser ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                  {user.avatar}
+                </div>
+                <div>
+                  <div className={`font-black text-sm ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                    {user.name} {user.isUser && <span className="text-[10px] text-indigo-500 ml-1">(Active)</span>}
+                  </div>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {user.completion}% Goal
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="flex items-center gap-1 justify-end">
+                  <Flame className={`w-4 h-4 ${user.streak > 0 ? 'text-orange-500 fill-orange-500' : 'text-slate-600'}`} />
+                  <span className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.streak}</span>
+                </div>
+                <div className={`text-[9px] uppercase font-bold tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Streak
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlannerView({ customFoods, foodDb, theme }) {
+  const [list, setList] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const generateList = async () => {
+    setLoading(true);
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        alert("Please add VITE_GEMINI_API_KEY to your .env file!");
+        setLoading(false);
+        return;
+      }
+      
+      const availableNames = [...foodDb, ...customFoods].map(f => f.name);
+      
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      const prompt = `You are a nutrition and meal planning AI.
+Based on the following food items available in the user's library:
+${JSON.stringify(availableNames)}
+
+Generate a structured, interactive weekly grocery shopping list. 
+Organize it into logical categories (e.g., Proteins, Carbs, Fats, Produce, etc.).
+Recommend reasonable quantities for a week of meal prep.
+Return ONLY a JSON object with a single key "categories" containing an array of objects.
+Each object should have "name" (string) and "items" (array of strings with quantities).
+Do not include markdown blocks around the JSON.`;
+
+      const result = await model.generateContent(prompt);
+      let text = await result.response.text();
+      text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+      
+      setList(JSON.parse(text));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate list.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      <div>
+        <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Planner</h2>
+        <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>AI Grocery Shopping List</p>
+      </div>
+
+      {!list ? (
+        <div className={`rounded-[2.5rem] p-8 border shadow-xl text-center space-y-6 ${theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'}`}>
+          <div className="mx-auto w-16 h-16 bg-indigo-500/20 text-indigo-500 rounded-full flex items-center justify-center">
+            <ShoppingCart className="w-8 h-8" />
+          </div>
+          <p className={`font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+            Let AI build your weekly grocery list based on your saved foods.
+          </p>
+          <button onClick={generateList} disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-black py-4 rounded-[2rem] shadow-lg transition-all flex items-center justify-center gap-2">
+            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <ShoppingCart className="w-5 h-5" />}
+            {loading ? "Generating..." : "Generate List"}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <button onClick={generateList} disabled={loading} className={`w-full py-3 rounded-2xl border font-black text-sm flex items-center justify-center gap-2 transition-all ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-indigo-400 hover:bg-slate-800' : 'bg-white border-slate-200 text-indigo-600 hover:bg-slate-50'}`}>
+            {loading ? <div className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" /> : <Zap className="w-4 h-4" />}
+            Regenerate List
+          </button>
+          
+          {list.categories?.map(cat => (
+            <div key={cat.name} className={`rounded-[2rem] p-6 border shadow-lg ${theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'}`}>
+              <h3 className={`text-sm font-black uppercase tracking-widest mb-4 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}>{cat.name}</h3>
+              <ul className="space-y-3">
+                {cat.items.map((item, i) => (
+                  <li key={i} className="flex items-center gap-3">
+                    <input type="checkbox" className="w-5 h-5 rounded-lg accent-indigo-500 cursor-pointer" />
+                    <span className={`font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   // --- STATE MANAGEMENT ---
   const [meals, setMeals] = useState([]);
@@ -804,7 +978,15 @@ function App() {
   const [customFoods, setCustomFoods] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin', 'squad', 'planner'
+  const [waterIntake, setWaterIntake] = useState(() => {
+    return Number(localStorage.getItem(`wozan-water-${todayString}`)) || 0;
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`wozan-water-${todayString}`, waterIntake);
+  }, [waterIntake]);
+
   const [inputText, setInputText] = useState('');
   const [parsedItems, setParsedItems] = useState([]);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -1500,6 +1682,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
               />
             </div>
 
+            {/* Interactive Fluid Canvas for Hydration */}
+            <HydrationTracker intake={waterIntake} setIntake={setWaterIntake} theme={theme} />
+
             {/* Conic-gradient Macro Ratio Breakdown Donut Chart */}
             <MacroBreakdown stats={stats} theme={theme} />
 
@@ -1897,19 +2082,27 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
             </div>
           </div>
         )}
+
+        {/* VIEW: SQUAD */}
+        {currentView === 'squad' && (
+          <SquadView streak={streakCount} progress={progress} theme={theme} />
+        )}
+
+        {/* VIEW: PLANNER */}
+        {currentView === 'planner' && (
+          <PlannerView customFoods={customFoods} foodDb={FOOD_DB} theme={theme} />
+        )}
       </main>
 
       {/* Bottom Navigation */}
-      <nav className={`fixed bottom-0 w-full border-t grid grid-cols-4 px-4 py-3 pb-8 z-40 transition-all duration-300 ${
+      <nav className={`fixed bottom-0 w-full border-t flex items-center justify-between px-6 py-3 pb-8 z-40 transition-all duration-300 overflow-x-auto gap-4 scrollbar-hide ${
         theme === 'dark' 
           ? 'bg-slate-900/90 border-slate-800/50 text-white shadow-[0_-20px_50px_rgba(0,0,0,0.5)]' 
           : 'bg-white/90 border-slate-200/50 text-slate-800 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]'
       }`}>
         <button onClick={() => setCurrentView('dashboard')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
           currentView === 'dashboard' 
-            ? theme === 'dark' 
-              ? 'text-indigo-400' 
-              : 'text-indigo-650 font-black' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
             : 'text-slate-500 dark:text-slate-600'
         }`}>
           <Activity className={`w-6 h-6 ${currentView === 'dashboard' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
@@ -1917,19 +2110,31 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         </button>
         <button onClick={() => setCurrentView('add')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
           currentView === 'add' 
-            ? theme === 'dark' 
-              ? 'text-indigo-400' 
-              : 'text-indigo-650 font-black' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
             : 'text-slate-500 dark:text-slate-600'
         }`}>
           <PlusCircle className={`w-6 h-6 ${currentView === 'add' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
           <span className="text-[9px] font-black tracking-widest uppercase">Log</span>
         </button>
+        <button onClick={() => setCurrentView('squad')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
+          currentView === 'squad' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
+            : 'text-slate-500 dark:text-slate-600'
+        }`}>
+          <Users className={`w-6 h-6 ${currentView === 'squad' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
+          <span className="text-[9px] font-black tracking-widest uppercase">Squad</span>
+        </button>
+        <button onClick={() => setCurrentView('planner')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
+          currentView === 'planner' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
+            : 'text-slate-500 dark:text-slate-600'
+        }`}>
+          <ShoppingCart className={`w-6 h-6 ${currentView === 'planner' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
+          <span className="text-[9px] font-black tracking-widest uppercase">Plan</span>
+        </button>
         <button onClick={() => setCurrentView('history')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
           currentView === 'history' 
-            ? theme === 'dark' 
-              ? 'text-indigo-400' 
-              : 'text-indigo-650 font-black' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
             : 'text-slate-500 dark:text-slate-600'
         }`}>
           <History className={`w-6 h-6 ${currentView === 'history' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
@@ -1937,9 +2142,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         </button>
         <button onClick={() => setCurrentView('admin')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
           currentView === 'admin' 
-            ? theme === 'dark' 
-              ? 'text-indigo-400' 
-              : 'text-indigo-650 font-black' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
             : 'text-slate-500 dark:text-slate-600'
         }`}>
           <Settings className={`w-6 h-6 ${currentView === 'admin' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
