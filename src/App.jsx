@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   Activity,
@@ -789,7 +789,7 @@ function MacroBreakdown({ stats, theme }) {
 }
 
 function HydrationTracker({ intake, setIntake, theme }) {
-  const target = 2000;
+  const target = 3000;
   const percentage = Math.min((intake / target) * 100, 100);
   
   return (
@@ -806,7 +806,7 @@ function HydrationTracker({ intake, setIntake, theme }) {
         <span className="text-sm font-black text-blue-500">{intake} / {target} ml</span>
       </div>
 
-      <div className={`relative w-full h-40 rounded-[2rem] overflow-hidden border cursor-pointer shadow-inner transition-all active:scale-95 ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-100 border-slate-300'}`} onClick={() => setIntake(prev => prev + 250)}>
+      <div className={`relative w-full h-40 rounded-[2rem] overflow-hidden border shadow-inner transition-all ${theme === 'dark' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-100 border-slate-300'}`}>
         <div 
           className="absolute bottom-0 w-full transition-all duration-1000 ease-out flex items-center justify-center bg-blue-500"
           style={{ height: `${percentage}%` }}
@@ -815,63 +815,150 @@ function HydrationTracker({ intake, setIntake, theme }) {
           <div className="absolute w-[200%] aspect-square bg-blue-500/40 rounded-[40%] bottom-[95%] left-[-50%] animate-[spin_8s_linear_infinite]" />
         </div>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10">
-          <span className="text-2xl font-black text-white drop-shadow-md">Tap to Drink</span>
-          <span className="text-sm font-bold text-white/90">+250ml</span>
+          <span className="text-2xl font-black text-white drop-shadow-md">Stay Hydrated</span>
         </div>
+      </div>
+      
+      <div className="flex gap-3 mt-4">
+        <button onClick={() => setIntake(prev => prev + 250)} className="flex-1 py-3 rounded-2xl bg-blue-500/10 text-blue-500 font-black text-sm border border-blue-500/20 hover:bg-blue-500/20 active:scale-95 transition-all">
+          +250ml
+        </button>
+        <button onClick={() => setIntake(prev => prev + 500)} className="flex-1 py-3 rounded-2xl bg-blue-500 text-white font-black text-sm shadow-lg shadow-blue-500/30 hover:bg-blue-400 active:scale-95 transition-all">
+          +500ml
+        </button>
       </div>
     </div>
   );
 }
 
-function SquadView({ streak, progress, theme }) {
-  const squad = [
-    { id: 1, name: "Alex C.", streak: 12, completion: 95, avatar: "A" },
-    { id: 2, name: "Sarah M.", streak: 8, completion: 88, avatar: "S" },
-    { id: 'me', name: "You", streak: streak, completion: Math.round(progress), avatar: "Y", isUser: true },
-    { id: 3, name: "Mike T.", streak: 5, completion: 76, avatar: "M" },
-  ].sort((a, b) => b.streak - a.streak || b.completion - a.completion);
+function AICoachDrawer({ isOpen, onClose, stats, targetCalories, streak, theme, customFoods }) {
+  const [messages, setMessages] = useState([
+    { role: 'assistant', content: "Hey! I'm your Wozan AI Coach. Based on your live data, how can I help you optimize your gains today?" }
+  ]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+    
+    const userMessage = input.trim();
+    setInput("");
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setIsLoading(true);
+
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        setMessages(prev => [...prev, { role: 'assistant', content: "Error: Please add VITE_GEMINI_API_KEY to your .env file." }]);
+        setIsLoading(false);
+        return;
+      }
+      
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      
+      const systemContext = `You are the Wozan AI Fitness & Nutrition Coach. Keep answers brief, actionable, and hyped! Use emojis.
+Current User Live Data:
+- Streak: ${streak} days
+- Daily Goal: ${targetCalories} kcal
+- Consumed Today: ${stats.calories} kcal (${stats.protein}g P / ${stats.carbs}g C / ${stats.fats}g F)
+- Remaining Calories: ${Math.max(0, targetCalories - stats.calories)} kcal
+- Available Foods Library: ${customFoods.map(f => f.name).join(', ')}`;
+
+      const chatHistory = messages.map(m => `${m.role === 'user' ? 'User' : 'Coach'}: ${m.content}`).join('\n');
+      
+      const prompt = `${systemContext}\n\nChat History:\n${chatHistory}\nUser: ${userMessage}\nCoach:`;
+
+      const result = await model.generateContent(prompt);
+      const reply = await result.response.text();
+
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (err) {
+      console.error(err);
+      setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I ran into a network error connecting to the AI." }]);
+    }
+    setIsLoading(false);
+  };
+
+  if (!isOpen) return null;
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Squad</h2>
-        <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Social Accountability Circle</p>
-      </div>
-      <div className={`rounded-[2.5rem] p-6 border shadow-xl backdrop-blur-xl ${theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'}`}>
-        <div className="space-y-4">
-          {squad.map((user) => (
-            <div key={user.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${user.isUser ? (theme === 'dark' ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-indigo-50 border-indigo-200') : (theme === 'dark' ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200')}`}>
-              <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${user.isUser ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
-                  {user.avatar}
-                </div>
-                <div>
-                  <div className={`font-black text-sm ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-                    {user.name} {user.isUser && <span className="text-[10px] text-indigo-500 ml-1">(Active)</span>}
-                  </div>
-                  <div className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {user.completion}% Goal
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="flex items-center gap-1 justify-end">
-                  <Flame className={`w-4 h-4 ${user.streak > 0 ? 'text-orange-500 fill-orange-500' : 'text-slate-600'}`} />
-                  <span className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.streak}</span>
-                </div>
-                <div className={`text-[9px] uppercase font-bold tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
-                  Streak
-                </div>
+    <div className={`fixed inset-0 z-50 flex flex-col justify-end ${theme === 'dark' ? 'bg-slate-950/80' : 'bg-slate-900/40'} backdrop-blur-sm animate-in fade-in`}>
+      <div className={`w-full h-[80vh] rounded-t-[2.5rem] shadow-2xl flex flex-col animate-in slide-in-from-bottom-full duration-300 ${theme === 'dark' ? 'bg-slate-900 border-t border-slate-800' : 'bg-white'}`}>
+        <div className="flex items-center justify-between p-6 border-b border-slate-800/20">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+              <Zap className="w-5 h-5 fill-current" />
+            </div>
+            <div>
+              <h3 className={`font-black text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Wozan AI Coach</h3>
+              <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-500'}`}>• Online</p>
+            </div>
+          </div>
+          <button onClick={onClose} className={`p-2 rounded-full ${theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl p-4 text-sm font-medium leading-relaxed shadow-sm ${
+                m.role === 'user' 
+                  ? 'bg-indigo-600 text-white rounded-br-sm' 
+                  : theme === 'dark' 
+                    ? 'bg-slate-800 text-slate-200 rounded-bl-sm' 
+                    : 'bg-slate-100 text-slate-800 rounded-bl-sm'
+              }`}>
+                {m.content}
               </div>
             </div>
           ))}
+          {isLoading && (
+            <div className="flex justify-start">
+              <div className={`max-w-[85%] rounded-2xl p-4 text-sm font-medium shadow-sm rounded-bl-sm flex items-center gap-2 ${theme === 'dark' ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-800'}`}>
+                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div className={`p-4 border-t ${theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+          <div className={`flex items-center gap-2 rounded-full p-2 border ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-300'}`}>
+            <input 
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendMessage()}
+              placeholder="Ask for advice or recipes..."
+              className={`flex-1 bg-transparent border-none focus:outline-none px-4 text-sm ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+              disabled={isLoading}
+            />
+            <button 
+              onClick={sendMessage}
+              disabled={!input.trim() || isLoading}
+              className={`p-3 rounded-full transition-all flex items-center justify-center ${input.trim() && !isLoading ? 'bg-indigo-600 text-white' : 'bg-slate-500/20 text-slate-500'}`}
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function PlannerView({ customFoods, foodDb, theme }) {
+function PlannerView({ customFoods, foodDb, theme, targets }) {
   const [list, setList] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -894,7 +981,13 @@ function PlannerView({ customFoods, foodDb, theme }) {
 Based on the following food items available in the user's library:
 ${JSON.stringify(availableNames)}
 
-Generate a structured, interactive weekly grocery shopping list. 
+The user has the following daily macro targets:
+- Calories: ${targets.calories} kcal
+- Protein: ${targets.protein}g
+- Carbs: ${targets.carbs}g
+- Fats: ${targets.fats}g
+
+Generate a structured, interactive weekly grocery shopping list calibrated to help hit these exact daily macro targets.
 Organize it into logical categories (e.g., Proteins, Carbs, Fats, Produce, etc.).
 Recommend reasonable quantities for a week of meal prep.
 Return ONLY a JSON object with a single key "categories" containing an array of objects.
@@ -991,6 +1084,7 @@ function App() {
   const [parsedItems, setParsedItems] = useState([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [isParsingAI, setIsParsingAI] = useState(false);
+  const [isCoachOpen, setIsCoachOpen] = useState(false);
 
   // Theme State & Persistence
   const [theme, setTheme] = useState(() => {
@@ -2083,16 +2177,32 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
           </div>
         )}
 
-        {/* VIEW: SQUAD */}
-        {currentView === 'squad' && (
-          <SquadView streak={streakCount} progress={progress} theme={theme} />
-        )}
-
         {/* VIEW: PLANNER */}
         {currentView === 'planner' && (
-          <PlannerView customFoods={customFoods} foodDb={FOOD_DB} theme={theme} />
+          <PlannerView customFoods={customFoods} foodDb={FOOD_DB} theme={theme} targets={{ calories: TARGET_CALORIES, protein: PROTEIN_TARGET, carbs: CARBS_TARGET, fats: FATS_TARGET }} />
         )}
       </main>
+
+      {/* Floating AI Coach Button */}
+      {currentView !== 'admin' && (
+        <button 
+          onClick={() => setIsCoachOpen(true)}
+          className="fixed bottom-24 right-5 z-40 w-14 h-14 bg-indigo-600 rounded-full shadow-[0_0_20px_rgba(79,70,229,0.5)] flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all"
+        >
+          <Zap className="w-6 h-6 fill-current animate-pulse" />
+        </button>
+      )}
+      
+      {/* AI Coach Drawer */}
+      <AICoachDrawer 
+        isOpen={isCoachOpen}
+        onClose={() => setIsCoachOpen(false)}
+        stats={stats}
+        targetCalories={TARGET_CALORIES}
+        streak={streakCount}
+        theme={theme}
+        customFoods={[...FOOD_DB, ...customFoods]}
+      />
 
       {/* Bottom Navigation */}
       <nav className={`fixed bottom-0 w-full border-t flex items-center justify-between px-6 py-3 pb-8 z-40 transition-all duration-300 overflow-x-auto gap-4 scrollbar-hide ${
@@ -2115,14 +2225,6 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         }`}>
           <PlusCircle className={`w-6 h-6 ${currentView === 'add' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
           <span className="text-[9px] font-black tracking-widest uppercase">Log</span>
-        </button>
-        <button onClick={() => setCurrentView('squad')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
-          currentView === 'squad' 
-            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
-            : 'text-slate-500 dark:text-slate-600'
-        }`}>
-          <Users className={`w-6 h-6 ${currentView === 'squad' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
-          <span className="text-[9px] font-black tracking-widest uppercase">Squad</span>
         </button>
         <button onClick={() => setCurrentView('planner')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
           currentView === 'planner' 
