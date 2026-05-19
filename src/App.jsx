@@ -1386,6 +1386,7 @@ function App() {
   const [parsedItems, setParsedItems] = useState([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [isParsingAI, setIsParsingAI] = useState(false);
+  const [aiLoadingText, setAiLoadingText] = useState('Processing...');
   const [isCoachOpen, setIsCoachOpen] = useState(false);
 
   const [isListening, setIsListening] = useState(false);
@@ -1473,12 +1474,12 @@ function App() {
     if (stream) stream.getTracks().forEach(t => t.stop());
     setIsCameraOpen(false);
     
+    setAiLoadingText("Processing Image...");
     setIsParsingAI(true);
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) throw new Error("API Key missing");
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       const allFoods = [...FOOD_DB, ...customFoods];
       const availableNames = allFoods.map(f => f.name);
@@ -1499,18 +1500,90 @@ For EACH food item, you must output an object with these keys:
 
 Return ONLY the raw JSON array. Do not include markdown formatting.`;
 
-      const result = await model.generateContent([
-         { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
-         prompt
-      ]);
+      let result = null;
+      let attempts = 0;
+      const maxRetries = 3;
+      let delay = 2000;
+
+      while (true) {
+        try {
+          const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+          result = await model.generateContent([
+             { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
+             prompt
+          ]);
+          break; // Success!
+        } catch (err) {
+          const is503 = err.status === 503 || 
+                        (err.message && err.message.includes("503")) || 
+                        (err.status && err.status.toString().includes("503"));
+          
+          if (is503 && attempts < maxRetries) {
+            attempts++;
+            setAiLoadingText("Server busy, retrying upload...");
+            await new Promise(resolve => setTimeout(resolve, delay));
+            delay *= 2;
+          } else {
+            throw err; // Out of retries or non-503 error
+          }
+        }
+      }
+
       let text = result.response.text();
       text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
       const parsedData = JSON.parse(text);
       
       await processParsedData(parsedData);
     } catch (err) {
-      console.error(err);
-      alert("Image AI parsing failed. " + err.message);
+      console.warn("gemini-2.5-flash failed or threw a persistent error. Attempting stable gemini-1.5-flash fallback. Error was:", err);
+      
+      const is503 = err.status === 503 || 
+                    (err.message && err.message.includes("503")) || 
+                    (err.status && err.status.toString().includes("503"));
+      
+      if (is503) {
+        try {
+          setAiLoadingText("Server busy, switching to backup model...");
+          const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const backupModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+          const allFoods = [...FOOD_DB, ...customFoods];
+          const availableNames = allFoods.map(f => f.name);
+
+          const prompt = `You are a strict food parsing nutritional API with vision capabilities.
+Analyze the user's provided image of their food. Estimate the foods and weights on the plate.
+
+We already have a database of foods. Here is the list of exact food names currently available:
+${JSON.stringify(availableNames)}
+
+Your task is to parse the visually identified foods into a JSON array of objects.
+For EACH food item, you must output an object with these keys:
+1. "food_name" (string): The name of the food item. If it maps closely to an item in the database, use that exact name. If new, invent a clear descriptive name.
+2. "matched_database_name" (string | null): The EXACT matching name from the database list if a close match is found. Otherwise, null.
+3. "weight_g" (number): The estimated weight in grams, or count if applicable.
+4. "is_new" (boolean): true if matched_database_name is null, false if it matches.
+5. "estimated_macros" (object | null): If "is_new" is true, provide estimated macros { calories, protein, carbs, fats, unit } per 100g/unit. If "is_new" is false, this must be null.
+
+Return ONLY the raw JSON array. Do not include markdown formatting.`;
+
+          const backupResult = await backupModel.generateContent([
+             { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
+             prompt
+          ]);
+          
+          let text = backupResult.response.text();
+          text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+          const parsedData = JSON.parse(text);
+          
+          await processParsedData(parsedData);
+        } catch (backupErr) {
+          console.error("Backup model gemini-1.5-flash failed too:", backupErr);
+          alert("Image AI parsing failed on primary and backup models. " + backupErr.message);
+        }
+      } else {
+        alert("Image AI parsing failed. " + err.message);
+      }
     }
     setIsParsingAI(false);
   };
@@ -1621,6 +1694,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting.`;
   const parseWithAI = async (customText = null) => {
     const textToParse = typeof customText === 'string' ? customText : inputText;
     if (!textToParse.trim()) return;
+    setAiLoadingText("Analyzing text entry...");
     setIsParsingAI(true);
     
     try {
@@ -2289,6 +2363,16 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
             <p className="text-indigo-500 font-black text-xs uppercase tracking-[0.2em]">Syncing Cloud...</p>
+          </div>
+        </div>
+      )}
+
+      {/* AI Parsing Loading Overlay */}
+      {isParsingAI && (
+        <div className={`fixed inset-0 backdrop-blur-sm z-[100] flex items-center justify-center transition-all ${theme === 'dark' ? 'bg-slate-950/80' : 'bg-white/80'}`}>
+          <div className="flex flex-col items-center gap-4 text-center px-4 max-w-sm animate-in fade-in duration-300">
+            <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+            <p className="text-indigo-500 font-black text-xs uppercase tracking-[0.2em] animate-pulse">{aiLoadingText}</p>
           </div>
         </div>
       )}
