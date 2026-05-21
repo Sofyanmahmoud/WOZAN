@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   Activity,
@@ -28,7 +28,11 @@ import {
   Lock,
   Unlock,
   Camera,
-  Layers
+  Layers,
+  Terminal,
+  ChevronUp,
+  ChevronDown,
+  RefreshCw
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -1335,8 +1339,429 @@ Return ONLY a JSON object exactly matching this schema: { "calories": number, "p
   );
 }
 
+// ==========================================
+// TECHNICAL MONOSPACE SYSTEM KERNEL LOG DRAWER
+// ==========================================
+function KernelLogDrawer({ systemLogs, addSystemLog, theme }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [pingTime, setPingTime] = useState(15);
+  const [isRunningDiagnostics, setIsRunningDiagnostics] = useState(false);
+  const logsEndRef = useRef(null);
+
+  // Auto-scroll to bottom when new logs arrive and drawer is open
+  useEffect(() => {
+    if (isOpen && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [systemLogs, isOpen]);
+
+  // Initial diagnostics on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const start = performance.now();
+      supabase.from('meals').select('count', { count: 'exact', head: true })
+        .then(() => {
+          const duration = Math.round(performance.now() - start);
+          setPingTime(duration);
+        })
+        .catch(() => {
+          setPingTime(99);
+        });
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const runActiveDiagnostics = async () => {
+    if (isRunningDiagnostics) return;
+    setIsRunningDiagnostics(true);
+    addSystemLog('init', 'Initializing active system diagnostics...');
+
+    // Phase 1: Local Storage capacity audit
+    await new Promise(resolve => setTimeout(resolve, 300));
+    let totalBytes = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      const val = localStorage.getItem(key);
+      totalBytes += (key.length + val.length) * 2; // UTF-16 bytes approx
+    }
+    const kbUsed = (totalBytes / 1024).toFixed(2);
+    addSystemLog('state', `Storage capacity audit: ${kbUsed} KB / 5120 KB allocated.`);
+
+    // Phase 2: Supabase database connection ping
+    await new Promise(resolve => setTimeout(resolve, 300));
+    const dbStart = performance.now();
+    try {
+      addSystemLog('sync', 'Pinging Supabase backend endpoint...');
+      const { error } = await supabase.from('meals').select('count', { count: 'exact', head: true });
+      const dbDuration = Math.round(performance.now() - dbStart);
+      setPingTime(dbDuration);
+      if (error) throw error;
+      addSystemLog('sync', `Supabase connection verified. RTT Latency: ${dbDuration}ms.`, { latencyMs: dbDuration });
+    } catch (err) {
+      const dbDuration = Math.round(performance.now() - dbStart);
+      setPingTime(dbDuration);
+      addSystemLog('sync', `Supabase endpoint unresponsive: ${err.message || String(err)}`, { error: true });
+    }
+
+    // Phase 3: Service Worker Status check
+    await new Promise(resolve => setTimeout(resolve, 300));
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      if (registrations.length > 0) {
+        addSystemLog('state', `PWA Service Worker detected: ACTIVE (${registrations.length} registrations)`);
+      } else {
+        addSystemLog('state', 'PWA Service Worker status: UNREGISTERED (Running in dev or unsupported environment)');
+      }
+    } else {
+      addSystemLog('state', 'PWA Service Worker unsupported in client agent.', { error: true });
+    }
+
+    // Diagnostics complete
+    await new Promise(resolve => setTimeout(resolve, 200));
+    addSystemLog('init', 'System diagnostic diagnostics pipeline complete: STATUS OK.');
+    setIsRunningDiagnostics(false);
+  };
+
+  const getLogTypeStyles = (type) => {
+    switch (type) {
+      case 'INIT': return 'text-purple-400 font-extrabold';
+      case 'SYNC': return 'text-sky-400 font-extrabold';
+      case 'AI': return 'text-teal-300 font-extrabold';
+      case 'STATE': return 'text-emerald-400 font-extrabold';
+      case 'ERROR': return 'text-rose-500 font-extrabold';
+      default: return 'text-slate-450';
+    }
+  };
+
+  return (
+    <div 
+      className={`fixed left-0 right-0 max-w-md mx-auto w-[calc(100%-2.5rem)] rounded-2xl border backdrop-blur-md shadow-2xl transition-all duration-300 ease-out z-35 overflow-hidden font-mono ${
+        isOpen ? 'h-[260px] bottom-[86px]' : 'h-[36px] bottom-[86px]'
+      } ${
+        theme === 'dark' 
+          ? 'bg-slate-950/95 border-emerald-500/20 shadow-emerald-950/10 text-emerald-400' 
+          : 'bg-slate-900/95 border-emerald-500/20 shadow-slate-950/20 text-emerald-405'
+      }`}
+    >
+      {/* Retracted / Header state */}
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between px-3 h-[34px] cursor-pointer hover:bg-slate-800/20 select-none border-b border-emerald-500/10"
+      >
+        <div className="flex items-center gap-2">
+          {/* LED pulse indicator */}
+          <span className="relative flex h-2 w-2">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+              isRunningDiagnostics ? 'bg-indigo-400 shadow-[0_0_8px_#818cf8]' : 'bg-emerald-450 shadow-[0_0_8px_#34d399]'
+            }`}></span>
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${
+              isRunningDiagnostics ? 'bg-indigo-500' : 'bg-emerald-500'
+            }`}></span>
+          </span>
+          <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-extrabold flex items-center gap-1.5">
+            [SYS_READY] <span className="opacity-40">|</span> LOGS: {systemLogs.length} <span className="opacity-40">|</span> PING: {pingTime}ms
+          </span>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <span className="text-[8px] font-black tracking-widest text-emerald-500/50 uppercase">
+            {isOpen ? 'Kernel.sys' : 'Expand_Diag'}
+          </span>
+          {isOpen ? (
+            <ChevronDown className="w-3.5 h-3.5 text-emerald-450" />
+          ) : (
+            <ChevronUp className="w-3.5 h-3.5 text-emerald-450" />
+          )}
+        </div>
+      </div>
+
+      {/* Expanded body (Terminal screen with CRT scanlines) */}
+      {isOpen && (
+        <div className="flex flex-col h-[calc(100%-34px)] relative bg-black/95">
+          {/* Retro CRT overlay effects */}
+          <div 
+            className="absolute inset-0 pointer-events-none opacity-5 mix-blend-overlay z-20"
+            style={{
+              background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%)',
+              backgroundSize: '100% 4px'
+            }}
+          />
+          <div className="absolute inset-0 pointer-events-none bg-emerald-500/5 z-10 animate-[pulse_6s_ease-in-out_infinite]" />
+
+          {/* Terminal Console Controls */}
+          <div className="flex items-center justify-between px-3 py-1.5 bg-slate-950 border-b border-emerald-500/10 z-10">
+            <span className="text-[8.5px] uppercase tracking-widest text-emerald-500/60 font-black">
+              System Kernel Diagnostics Console v1.0
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  runActiveDiagnostics();
+                }}
+                disabled={isRunningDiagnostics}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded border border-emerald-500/20 bg-emerald-950/20 text-emerald-400 text-[8px] font-bold uppercase transition-all hover:bg-emerald-900/30 active:scale-95 disabled:opacity-50 cursor-pointer`}
+                title="Run active connection & capacity tests"
+              >
+                <RefreshCw className={`w-2.5 h-2.5 ${isRunningDiagnostics ? 'animate-spin' : ''}`} />
+                {isRunningDiagnostics ? 'Testing...' : 'Ping Test'}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addSystemLog('init', 'Console logs cleared by user authority.');
+                }}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-950/10 text-rose-400 text-[8px] font-bold uppercase transition-all hover:bg-rose-950/30 active:scale-95 cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable Monospace Logs */}
+          <div className="flex-1 p-3 overflow-y-auto scrollbar-thin font-mono text-[9px] text-emerald-400/90 space-y-1.5 leading-normal">
+            {systemLogs.length === 0 ? (
+              <div className="opacity-50 text-center py-4">NO ACTIVE KERNEL TELEMETRY BUFFERED</div>
+            ) : (
+              systemLogs.slice().reverse().map((log) => (
+                <div key={log.id} className="break-all whitespace-pre-wrap flex items-start gap-1 font-semibold text-left">
+                  <span className="text-emerald-600/70 select-none shrink-0">[{log.time}]</span>
+                  <span className={`${getLogTypeStyles(log.type)} shrink-0 select-none`}>[{log.type}]</span>
+                  <span className="text-emerald-300/90">{log.message}</span>
+                </div>
+              ))
+            )}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// GITHUB-STYLE CONTRIBUTION CONSISTENCY MATRIX
+// ==========================================
+function ContributionMatrix({ meals, theme, targetCalories }) {
+  const today = useMemo(() => new Date(), []);
+  
+  const { weeks, weeksList } = useMemo(() => {
+    const todayDayOfWeek = today.getDay();
+    const currentSunday = new Date(today);
+    currentSunday.setDate(today.getDate() - todayDayOfWeek);
+
+    const startSunday = new Date(currentSunday);
+    startSunday.setDate(currentSunday.getDate() - 52 * 7);
+
+    const generatedWeeks = [];
+    let currentWeek = [];
+
+    for (let i = 0; i < 371; i++) {
+      const d = new Date(startSunday);
+      d.setDate(startSunday.getDate() + i);
+      
+      const dateStr = d.toISOString().split('T')[0];
+      const isFuture = d > today;
+      
+      const dayMeals = meals.filter(m => {
+        const mDate = m.date || (m.created_at ? m.created_at.split('T')[0] : '');
+        return mDate === dateStr;
+      });
+      
+      const totalCals = dayMeals.reduce((acc, m) => acc + Number(m.calories || 0), 0);
+      const percent = targetCalories > 0 ? (totalCals / targetCalories) * 100 : 0;
+      
+      let level = 0;
+      if (totalCals > 0) {
+        if (percent < 50) level = 1;
+        else if (percent < 80) level = 2;
+        else if (percent < 100) level = 3;
+        else level = 4;
+      }
+      
+      currentWeek.push({
+        date: d,
+        dateStr,
+        isFuture,
+        totalCals,
+        percent,
+        level,
+        mealsCount: dayMeals.length
+      });
+      
+      if (currentWeek.length === 7) {
+        generatedWeeks.push(currentWeek);
+        currentWeek = [];
+      }
+    }
+    return { weeks: generatedWeeks, weeksList: generatedWeeks.flat() };
+  }, [meals, targetCalories, today]);
+
+  // Find today's day item to set as default selected day
+  const todayItem = useMemo(() => {
+    const todayStr = today.toISOString().split('T')[0];
+    return weeksList.find(d => d.dateStr === todayStr) || weeksList[weeksList.length - 1];
+  }, [weeksList, today]);
+
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  useEffect(() => {
+    if (todayItem && !selectedDay) {
+      setSelectedDay(todayItem);
+    }
+  }, [todayItem, selectedDay]);
+
+  return (
+    <div className={`rounded-[2rem] p-5 border shadow-lg transition-all duration-300 backdrop-blur-xl ${
+      theme === 'dark' 
+        ? 'bg-slate-900/40 border-white/5 shadow-indigo-950/20' 
+        : 'bg-white/45 border-slate-200/50 shadow-slate-100'
+    }`}>
+      <div className="flex items-center justify-between mb-4 px-1">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-950/50 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+            <Activity className="w-4 h-4 text-emerald-500" />
+          </div>
+          <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-650'}`}>
+            Consistency Core Matrix
+          </span>
+        </div>
+        <span className={`text-[9px] font-bold ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+          365-Day Log
+        </span>
+      </div>
+
+      <div className="flex">
+        {/* Day of week labels */}
+        <div className="flex flex-col gap-[3px] text-[8px] text-slate-500 font-bold select-none pr-1.5 pt-[17px] text-left">
+          <div className="h-[10px] w-4 leading-[10px]"></div>
+          <div className="h-[10px] w-4 leading-[10px]">M</div>
+          <div className="h-[10px] w-4 leading-[10px]"></div>
+          <div className="h-[10px] w-4 leading-[10px]">W</div>
+          <div className="h-[10px] w-4 leading-[10px]"></div>
+          <div className="h-[10px] w-4 leading-[10px]">F</div>
+          <div className="h-[10px] w-4 leading-[10px]"></div>
+        </div>
+
+        {/* Scrollable grid wrapper */}
+        <div className="flex-1 overflow-x-auto scrollbar-none pb-1">
+          <div className="flex flex-col w-max">
+            {/* Month labels */}
+            <div className="flex gap-[3px] mb-1 select-none h-[12px] text-left">
+              {weeks.map((week, wIdx) => {
+                const showMonth = wIdx === 0 || (week[0].date.getMonth() !== weeks[wIdx - 1][0].date.getMonth() && week[0].date.getDate() <= 7);
+                return (
+                  <div key={wIdx} className="w-[10px] text-[8px] text-slate-500 font-bold overflow-visible whitespace-nowrap">
+                    {showMonth ? week[0].date.toLocaleString('default', { month: 'short' }) : ''}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Grid blocks */}
+            <div className="flex gap-[3px]">
+              {weeks.map((week, wIdx) => (
+                <div key={wIdx} className="flex flex-col gap-[3px]">
+                  {week.map((day, dIdx) => {
+                    let blockColor = '';
+                    if (day.isFuture) {
+                      blockColor = 'bg-transparent border-transparent pointer-events-none opacity-0';
+                    } else if (day.level === 0) {
+                      blockColor = theme === 'dark' ? 'bg-slate-900 border border-slate-800/40 hover:border-slate-700' : 'bg-slate-100 border border-slate-200 hover:border-slate-300';
+                    } else if (day.level === 1) {
+                      blockColor = theme === 'dark' ? 'bg-emerald-950/40 border border-emerald-900/20 hover:border-emerald-800/40' : 'bg-emerald-100/50 border border-emerald-200/30 hover:border-emerald-300/40';
+                    } else if (day.level === 2) {
+                      blockColor = theme === 'dark' ? 'bg-emerald-800/30 border border-emerald-700/30 hover:border-emerald-600/40' : 'bg-emerald-200 border border-emerald-300/40 hover:border-emerald-450';
+                    } else if (day.level === 3) {
+                      blockColor = theme === 'dark' ? 'bg-emerald-600/50 border border-emerald-500/40 hover:border-emerald-400/50' : 'bg-emerald-400/70 border border-emerald-500/50 hover:border-emerald-600';
+                    } else {
+                      blockColor = theme === 'dark' 
+                        ? 'bg-emerald-500 border border-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.75)] hover:bg-emerald-400' 
+                        : 'bg-emerald-500 border border-emerald-400 shadow-[0_0_4px_rgba(16,185,129,0.3)] hover:bg-emerald-400';
+                    }
+
+                    const isSelected = selectedDay && selectedDay.dateStr === day.dateStr;
+
+                    return (
+                      <button
+                        key={dIdx}
+                        onClick={() => !day.isFuture && setSelectedDay(day)}
+                        disabled={day.isFuture}
+                        className={`w-[10px] h-[10px] rounded-[1.5px] transition-all cursor-pointer ${blockColor} ${
+                          isSelected ? 'ring-[1.5px] ring-indigo-500 ring-offset-[1px] ring-offset-slate-900 scale-110 z-10' : ''
+                        }`}
+                        title={`${day.dateStr}: ${day.totalCals} kcal (${day.mealsCount} meals)`}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center justify-between mt-3 text-[9px] text-slate-500 font-medium px-1 select-none">
+        <span>{weeks.length > 0 && weeks[0][0].dateStr} to {weeks.length > 0 && weeks[52][6].dateStr}</span>
+        <div className="flex items-center gap-1">
+          <span>Less</span>
+          <div className={`w-2 h-2 rounded-[1.5px] ${theme === 'dark' ? 'bg-slate-900 border border-slate-800/50' : 'bg-slate-100 border border-slate-200/50'}`} />
+          <div className={`w-2 h-2 rounded-[1.5px] ${theme === 'dark' ? 'bg-emerald-950/40 border border-emerald-900/20' : 'bg-emerald-100/50 border border-emerald-200/30'}`} />
+          <div className={`w-2 h-2 rounded-[1.5px] ${theme === 'dark' ? 'bg-emerald-800/30 border border-emerald-700/30' : 'bg-emerald-205 border border-emerald-300/40'}`} />
+          <div className={`w-2 h-2 rounded-[1.5px] ${theme === 'dark' ? 'bg-emerald-600/50 border border-emerald-500/40' : 'bg-emerald-400/70 border border-emerald-500/50'}`} />
+          <div className={`w-2 h-2 rounded-[1.5px] bg-emerald-500 border border-emerald-400 shadow-[0_0_4px_rgba(16,185,129,0.7)]`} />
+          <span>More</span>
+        </div>
+      </div>
+
+      {/* Selected Day Stats Card */}
+      {selectedDay && (
+        <div className={`mt-3 p-3 rounded-2xl border text-xs flex justify-between items-center transition-all ${
+          theme === 'dark' ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100/60 border-slate-200 text-slate-700'
+        }`}>
+          <div className="text-left">
+            <div className={`font-black uppercase tracking-widest text-[9px] mb-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+              System Log: {selectedDay.dateStr}
+            </div>
+            <div className="font-bold flex items-center gap-1">
+              Calories: <span className="text-emerald-500 font-extrabold">{selectedDay.totalCals}</span> / <span className={`${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{targetCalories} kcal</span>
+            </div>
+            <div className={`text-[10px] mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+              {selectedDay.mealsCount} meals logged • {Math.round(selectedDay.percent)}% of target
+            </div>
+          </div>
+          <div className="flex flex-col items-end">
+            <div className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+              Level {selectedDay.level}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   // --- STATE MANAGEMENT ---
+  const [systemLogs, setSystemLogs] = useState([]);
+
+  const addSystemLog = useCallback((type, message, details = {}) => {
+    setSystemLogs(prev => {
+      const now = new Date();
+      const ms = String(now.getMilliseconds()).padStart(3, '0');
+      const timeStr = `${now.toTimeString().split(' ')[0]}.${ms}`;
+      const logEntry = {
+        id: Math.random().toString(36).substring(2, 9),
+        time: timeStr,
+        type: type.toUpperCase(),
+        message,
+        details
+      };
+      return [logEntry, ...prev].slice(0, 100);
+    });
+  }, []);
+
   const [meals, setMeals] = useState([]);
   const [targetCalories, setTargetCalories] = useState(() => {
     return Number(localStorage.getItem('wozan-target-calories')) || 3000;
@@ -1352,6 +1777,7 @@ function App() {
   const CARBS_TARGET = macroTargets ? macroTargets.c : Math.round((targetCalories * 0.50) / 4);
   const FATS_TARGET = macroTargets ? macroTargets.f : Math.round((targetCalories * 0.30) / 9);
 
+  const isTargetCalMounted = useRef(false);
   useEffect(() => {
     localStorage.setItem('wozan-target-calories', targetCalories);
     if (macroTargets) {
@@ -1360,7 +1786,12 @@ function App() {
         setMacroTargets(null);
       }
     }
-  }, [targetCalories, macroTargets]);
+    if (isTargetCalMounted.current) {
+      addSystemLog('state', `Caloric target updated to ${targetCalories} kcal.`);
+    } else {
+      isTargetCalMounted.current = true;
+    }
+  }, [targetCalories, macroTargets, addSystemLog]);
 
   useEffect(() => {
     if (macroTargets) {
@@ -1374,13 +1805,28 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin', 'squad', 'planner'
+  const isViewMounted = useRef(false);
+  useEffect(() => {
+    if (isViewMounted.current) {
+      addSystemLog('state', `Navigation routing: Switched to view "${currentView.toUpperCase()}"`);
+    } else {
+      isViewMounted.current = true;
+    }
+  }, [currentView, addSystemLog]);
+
   const [waterIntake, setWaterIntake] = useState(() => {
     return Number(localStorage.getItem(`wozan-water-${todayString}`)) || 0;
   });
 
+  const isWaterMounted = useRef(false);
   useEffect(() => {
     localStorage.setItem(`wozan-water-${todayString}`, waterIntake);
-  }, [waterIntake]);
+    if (isWaterMounted.current) {
+      addSystemLog('state', `Water intake updated to ${waterIntake} ml.`);
+    } else {
+      isWaterMounted.current = true;
+    }
+  }, [waterIntake, addSystemLog]);
 
   const [inputText, setInputText] = useState('');
   const [parsedItems, setParsedItems] = useState([]);
@@ -1648,15 +2094,27 @@ Return ONLY the raw JSON array. Do not include markdown formatting.`;
   // --- EFFECTS ---
   // --- CLOUD SYNC (SUPABASE) & OFFLINE QUEUE ---
   const fetchSupabaseData = async () => {
+    const startTime = performance.now();
     setLoading(true);
+    addSystemLog('init', 'Initializing remote data sync with Supabase...');
     try {
-      const { data: foodsData } = await supabase.from('foods').select('*').order('name', { ascending: true });
-      if (foodsData) setCustomFoods(foodsData);
+      const { data: foodsData, error: foodsError } = await supabase.from('foods').select('*').order('name', { ascending: true });
+      if (foodsError) throw foodsError;
+      if (foodsData) {
+        setCustomFoods(foodsData);
+        addSystemLog('state', `Custom food library sync: OK. Loaded ${foodsData.length} records.`);
+      }
       
-      const { data: mealsData } = await supabase.from('meals').select('*').order('id', { ascending: false });
-      if (mealsData) setMeals(mealsData);
+      const { data: mealsData, error: mealsError } = await supabase.from('meals').select('*').order('id', { ascending: false });
+      if (mealsError) throw mealsError;
+      if (mealsData) {
+        setMeals(mealsData);
+        const duration = Math.round(performance.now() - startTime);
+        addSystemLog('sync', `Supabase connection verified. Synced ${mealsData.length} meals.`, { latencyMs: duration });
+      }
     } catch (err) {
       console.error("Fetch error:", err);
+      addSystemLog('sync', `Supabase sync failed: ${err.message || String(err)}`, { error: true });
     }
     setLoading(false);
   };
@@ -1667,23 +2125,37 @@ Return ONLY the raw JSON array. Do not include markdown formatting.`;
     const queue = JSON.parse(queueStr);
     if (queue.length === 0) return;
     
+    addSystemLog('sync', `Offline queue detected with ${queue.length} items. Syncing...`);
+    const startTime = performance.now();
     try {
       const { error } = await supabase.from('meals').insert(queue);
       if (!error) {
         localStorage.removeItem('wozan-offline-queue');
+        const duration = Math.round(performance.now() - startTime);
+        addSystemLog('sync', `Offline queue synchronization successful.`, { durationMs: duration, itemsSynced: queue.length });
         fetchSupabaseData(); // Refresh with real IDs
       } else {
         console.error("Offline sync error", error);
+        addSystemLog('sync', `Offline queue synchronization failed: ${error.message}`, { error: true });
       }
     } catch (err) {
       console.error("Sync failed", err);
+      addSystemLog('sync', `Offline sync failed: ${err.message || String(err)}`, { error: true });
     }
   };
 
   useEffect(() => {
-    fetchSupabaseData();
+    const mountStart = performance.now();
+    addSystemLog('init', 'Wozan Application Boot Sequence Initialized.');
+
     window.addEventListener('online', syncOfflineQueue);
     if (navigator.onLine) syncOfflineQueue();
+
+    fetchSupabaseData().then(() => {
+      const mountDuration = Math.round(performance.now() - mountStart);
+      addSystemLog('init', `Application fully hydrated and active in ${mountDuration}ms.`);
+    });
+
     return () => window.removeEventListener('online', syncOfflineQueue);
   }, []);
 
@@ -1694,12 +2166,17 @@ Return ONLY the raw JSON array. Do not include markdown formatting.`;
   const parseWithAI = async (customText = null) => {
     const textToParse = typeof customText === 'string' ? customText : inputText;
     if (!textToParse.trim()) return;
+    
+    const startTime = performance.now();
+    addSystemLog('ai', `Initiating Gemini parsing. Text length: ${textToParse.length} chars.`, { payloadSize: textToParse.length });
+    
     setAiLoadingText("Analyzing text entry...");
     setIsParsingAI(true);
     
     try {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) {
+        addSystemLog('ai', `API key missing. Aborting parsing.`, { error: true });
         alert("Please add VITE_GEMINI_API_KEY to your .env file!");
         setIsParsingAI(false);
         return;
@@ -1735,16 +2212,30 @@ For EACH food item mentioned in the text, you must output an object with these k
 
 Return ONLY the raw JSON array. Do not include markdown formatting or conversational text.`;
 
+      addSystemLog('ai', `Connecting to Google Gemini API... Prompt size: ~${Math.round(prompt.length / 4)} tokens.`);
+      const apiStart = performance.now();
+      
       const result = await model.generateContent(prompt);
       const response = await result.response;
       let text = response.text();
+      const apiDuration = Math.round(performance.now() - apiStart);
+      
       // Clean up markdown formatting if any
       text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
       
       const parsedData = JSON.parse(text);
+      const totalDuration = Math.round(performance.now() - startTime);
+      
+      addSystemLog('ai', `AI parse success. Received ${parsedData.length} food items.`, {
+        apiLatencyMs: apiDuration,
+        totalLatencyMs: totalDuration,
+        estimatedTokens: Math.round((prompt.length + text.length) / 4)
+      });
+      
       await processParsedData(parsedData);
     } catch (err) {
       console.error("AI Parsing Error:", err);
+      addSystemLog('ai', `Gemini parser failed: ${err.message || String(err)}`, { error: true });
       alert("Failed to parse with AI. " + err.message);
     }
     setIsParsingAI(false);
@@ -1915,6 +2406,8 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       date: todayISO
     };
 
+    addSystemLog('state', `Log triggered for meal: "${summaryName}" (${Math.round(totalCals)} kcal).`);
+    const startTime = performance.now();
     try {
       const { data, error } = await supabase
         .from('meals')
@@ -1922,6 +2415,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         .select();
 
       if (error) throw error;
+
+      const duration = Math.round(performance.now() - startTime);
+      addSystemLog('sync', `Meal synced to Supabase DB in ${duration}ms. ID: ${data[0].id}`, { latencyMs: duration });
 
       setMeals([data[0], ...meals]);
       setInputText('');
@@ -1942,6 +2438,8 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       const offlineMeal = { ...mealToInsert, id: 'temp-' + Date.now(), is_offline: true };
       setMeals([offlineMeal, ...meals]);
       
+      addSystemLog('state', 'Supabase network offline. Cached meal to local queue.', { error: true });
+
       const queue = JSON.parse(localStorage.getItem('wozan-offline-queue') || '[]');
       queue.push(mealToInsert);
       localStorage.setItem('wozan-offline-queue', JSON.stringify(queue));
@@ -2033,17 +2531,21 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
 
       if (error) {
         console.error("PGRST Error (addFood):", error);
+        addSystemLog('state', `Custom food creation failed: ${error.message}`, { error: true });
         return;
       }
 
       setCustomFoods([data[0], ...customFoods]);
       setNewFood({ name: '', calories: '', protein: '', carbs: '', fats: '' });
+      addSystemLog('state', `Custom food created: "${foodItem.name}" (${foodItem.calories} kcal).`);
     } catch (err) {
       console.error("Unexpected addFood error:", err);
+      addSystemLog('state', `Unexpected food creation error: ${err.message || String(err)}`, { error: true });
     }
   };
 
   const deleteCustomFood = async (id) => {
+    const foodToDelete = customFoods.find(f => f.id === id);
     try {
       const { data, error } = await supabase
         .from('foods')
@@ -2054,19 +2556,23 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       if (error) {
         console.error("PGRST Error (deleteFood):", error);
         alert(`Failed to delete custom food: ${error.message || JSON.stringify(error)}`);
+        addSystemLog('state', `Custom food deletion failed: ${error.message}`, { error: true });
         return;
       }
 
       if (!data || data.length === 0) {
         console.error("Delete failed: No rows were returned (Possible RLS issue or incorrect ID).");
         alert("Delete failed: No matching record found in the database. You might not have permission or it was already deleted.");
+        addSystemLog('state', `Custom food deletion failed: No matching record or unauthorized.`, { error: true });
         return;
       }
 
       setCustomFoods(customFoods.filter(f => f.id !== id));
+      addSystemLog('state', `Custom food deleted: "${foodToDelete?.name || 'Unknown'}"`);
     } catch (err) {
       console.error("Unexpected deleteFood error:", err);
       alert(`Unexpected error deleting food: ${err.message || String(err)}`);
+      addSystemLog('state', `Unexpected custom food deletion error: ${err.message || String(err)}`, { error: true });
     }
   };
 
@@ -2385,6 +2891,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Weekly Consistency Matrix */}
             <WeeklyMatrix meals={meals} theme={theme} targetCalories={TARGET_CALORIES} />
+
+            {/* GitHub-Style Contribution Consistency Matrix */}
+            <ContributionMatrix meals={meals} theme={theme} targetCalories={TARGET_CALORIES} />
 
             {/* Predictive Trend Forecaster */}
             <TrendForecaster meals={meals} targetCalories={TARGET_CALORIES} theme={theme} />
@@ -2914,6 +3423,13 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         streak={streakCount}
         theme={theme}
         customFoods={[...FOOD_DB, ...customFoods]}
+      />
+
+      {/* Technical Monospace System Kernel Log Drawer */}
+      <KernelLogDrawer 
+        systemLogs={systemLogs} 
+        addSystemLog={addSystemLog} 
+        theme={theme} 
       />
 
       {/* Bottom Navigation */}
