@@ -1340,6 +1340,443 @@ Return ONLY a JSON object exactly matching this schema: { "calories": number, "p
 }
 
 // ==========================================
+// WEIGHT GAIN TRACKER & PREDICTOR
+// ==========================================
+function WeightTrackerView({ targetCalories, meals, theme }) {
+  const [profile, setProfile] = useState(() => {
+    const saved = localStorage.getItem('wozan-weight-profile');
+    return saved ? JSON.parse(saved) : { currentWeight: '', goalWeight: '', tdee: '' };
+  });
+
+  const [weightLog, setWeightLog] = useState(() => {
+    const saved = localStorage.getItem('wozan-weight-log');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [newWeight, setNewWeight] = useState('');
+  const [showLogInput, setShowLogInput] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState(profile);
+
+  useEffect(() => {
+    localStorage.setItem('wozan-weight-profile', JSON.stringify(profile));
+  }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem('wozan-weight-log', JSON.stringify(weightLog));
+  }, [weightLog]);
+
+  const currentWeight = parseFloat(profile.currentWeight) || 0;
+  const goalWeight   = parseFloat(profile.goalWeight)   || 0;
+  const tdee         = parseFloat(profile.tdee)         || 0;
+  const surplus      = tdee > 0 ? targetCalories - tdee : 0;
+  const gainPerDay   = surplus > 0 ? surplus / 7700 : 0;
+  const gainPerWeek  = gainPerDay * 7;
+  const totalToGain  = goalWeight - currentWeight;
+  const weeksToGoal  = gainPerWeek > 0 && totalToGain > 0 ? Math.ceil(totalToGain / gainPerWeek) : null;
+  const goalDate     = weeksToGoal ? new Date(Date.now() + weeksToGoal * 7 * 24 * 60 * 60 * 1000) : null;
+
+  const logWeight = () => {
+    const val = parseFloat(newWeight);
+    if (!val || val <= 0) return;
+    const today = new Date().toISOString().split('T')[0];
+    const updated = [{ date: today, weight: val }, ...weightLog.filter(e => e.date !== today)];
+    setWeightLog(updated.slice(0, 30));
+    setNewWeight('');
+    setShowLogInput(false);
+  };
+
+  const deleteEntry = (date) => setWeightLog(weightLog.filter(e => e.date !== date));
+
+  const saveProfile = () => { setProfile(profileDraft); setEditingProfile(false); };
+
+  const chartData = [...weightLog]
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(-8);
+
+  const minW  = chartData.length > 0 ? Math.min(...chartData.map(e => e.weight)) - 0.5 : (currentWeight || 60) - 1;
+  const maxW  = chartData.length > 0 ? Math.max(...chartData.map(e => e.weight)) + 0.5 : (currentWeight || 60) + 1;
+  const wRange = maxW - minW || 1;
+
+  const sortedLog = [...weightLog].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const firstEntry = [...weightLog].sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+
+  return (
+    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+      <div>
+        <h2 className={`text-3xl font-black mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Weight Tracker</h2>
+        <p className={`font-medium ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Predict & track your mass gains</p>
+      </div>
+
+      {/* ── Profile Panel ── */}
+      <div className={`rounded-[2.5rem] p-6 border shadow-xl backdrop-blur-xl transition-all duration-300 ${
+        theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50 shadow-slate-100'
+      }`}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-950/50 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+              <Users className="w-4 h-4" />
+            </div>
+            <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Body Profile</span>
+          </div>
+          <button
+            onClick={() => { setProfileDraft(profile); setEditingProfile(!editingProfile); }}
+            className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl transition-all active:scale-95 ${
+              editingProfile
+                ? 'bg-red-500/20 text-red-400'
+                : theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            {editingProfile ? 'Cancel' : 'Edit'}
+          </button>
+        </div>
+
+        {editingProfile ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={`block text-[10px] font-black uppercase tracking-[0.2em] mb-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Current Weight (kg)</label>
+                <input
+                  type="number" step="0.1"
+                  value={profileDraft.currentWeight}
+                  onChange={e => setProfileDraft({ ...profileDraft, currentWeight: e.target.value })}
+                  placeholder="e.g. 70"
+                  className={`w-full border-2 rounded-2xl px-4 py-3 focus:outline-none transition-all font-bold text-sm ${
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-700 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500'
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`block text-[10px] font-black uppercase tracking-[0.2em] mb-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Goal Weight (kg)</label>
+                <input
+                  type="number" step="0.1"
+                  value={profileDraft.goalWeight}
+                  onChange={e => setProfileDraft({ ...profileDraft, goalWeight: e.target.value })}
+                  placeholder="e.g. 80"
+                  className={`w-full border-2 rounded-2xl px-4 py-3 focus:outline-none transition-all font-bold text-sm ${
+                    theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-700 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500'
+                  }`}
+                />
+              </div>
+            </div>
+            <div>
+              <label className={`block text-[10px] font-black uppercase tracking-[0.2em] mb-2 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Maintenance Calories / TDEE (kcal/day)</label>
+              <input
+                type="number"
+                value={profileDraft.tdee}
+                onChange={e => setProfileDraft({ ...profileDraft, tdee: e.target.value })}
+                placeholder="e.g. 2500"
+                className={`w-full border-2 rounded-2xl px-4 py-3 focus:outline-none transition-all font-bold text-sm ${
+                  theme === 'dark' ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-700 focus:border-indigo-500' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500'
+                }`}
+              />
+              <p className={`text-[10px] mt-1.5 ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>Calories your body burns daily — use a TDEE calculator if unsure</p>
+            </div>
+            <button
+              onClick={saveProfile}
+              className="w-full font-black py-4 rounded-[2rem] bg-indigo-600 text-white hover:bg-indigo-500 shadow-indigo-600/25 transition-all active:scale-95 uppercase tracking-widest text-sm"
+            >
+              Save Profile
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Current', value: currentWeight ? `${currentWeight} kg` : '—' },
+              { label: 'Goal',    value: goalWeight    ? `${goalWeight} kg`    : '—' },
+              { label: 'TDEE',   value: tdee           ? `${tdee} kcal`        : '—' },
+            ].map(({ label, value }) => (
+              <div key={label} className={`rounded-2xl p-3 text-center border ${
+                theme === 'dark' ? 'bg-slate-800/40 border-slate-700/50' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className={`text-xs font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{value}</div>
+                <div className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Prediction Section ── */}
+      {tdee > 0 && currentWeight > 0 ? (
+        <>
+          {/* Surplus / Deficit Banner */}
+          <div className={`rounded-[2rem] px-5 py-3.5 flex items-center justify-between border transition-all ${
+            surplus > 0
+              ? theme === 'dark' ? 'bg-emerald-950/30 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'
+              : theme === 'dark' ? 'bg-red-950/30 border-red-500/20'         : 'bg-red-50 border-red-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Flame className={`w-4 h-4 ${surplus > 0 ? 'text-emerald-500' : 'text-red-500'}`} />
+              <span className={`text-[10px] font-black uppercase tracking-widest ${
+                surplus > 0
+                  ? theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'
+                  : theme === 'dark' ? 'text-red-400'     : 'text-red-700'
+              }`}>
+                {surplus > 0 ? 'Caloric Surplus' : surplus < 0 ? 'Caloric Deficit' : 'Maintenance'}
+              </span>
+            </div>
+            <span className={`font-black text-base ${
+              surplus > 0
+                ? theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'
+                : theme === 'dark' ? 'text-red-400'     : 'text-red-700'
+            }`}>
+              {surplus > 0 ? '+' : ''}{Math.round(surplus)} kcal/day
+            </span>
+          </div>
+
+          {/* Gain Cards */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Per Day */}
+            <div className={`rounded-[2rem] p-5 border shadow-xl backdrop-blur-xl relative overflow-hidden ${
+              theme === 'dark' ? 'bg-slate-900/40 border-indigo-500/10' : 'bg-white/60 border-indigo-100 shadow-indigo-50'
+            }`}>
+              <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
+              <div className={`text-[9px] font-black uppercase tracking-widest mb-3 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-500'}`}>Per Day</div>
+              <div className={`text-2xl font-black leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                {gainPerDay > 0 ? `+${gainPerDay.toFixed(3)}` : gainPerDay < 0 ? gainPerDay.toFixed(3) : '0.000'}
+              </div>
+              <div className={`text-[10px] font-bold mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>kg expected</div>
+            </div>
+
+            {/* Per Week */}
+            <div className={`rounded-[2rem] p-5 border shadow-xl backdrop-blur-xl relative overflow-hidden ${
+              theme === 'dark' ? 'bg-slate-900/40 border-emerald-500/10' : 'bg-white/60 border-emerald-100 shadow-emerald-50'
+            }`}>
+              <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
+              <div className={`text-[9px] font-black uppercase tracking-widest mb-3 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>Per Week</div>
+              <div className={`text-2xl font-black leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                {gainPerWeek > 0 ? `+${gainPerWeek.toFixed(2)}` : gainPerWeek < 0 ? gainPerWeek.toFixed(2) : '0.00'}
+              </div>
+              <div className={`text-[10px] font-bold mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>kg expected</div>
+            </div>
+          </div>
+
+          {/* Goal ETA card */}
+          {goalWeight > currentWeight && weeksToGoal && (
+            <div className={`rounded-[2.5rem] p-6 border shadow-xl backdrop-blur-xl relative overflow-hidden ${
+              theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'
+            }`}>
+              <div className="absolute top-0 right-0 w-48 h-48 rounded-full bg-indigo-500/5 blur-3xl pointer-events-none" />
+              <div className="flex items-center gap-2 mb-5">
+                <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-amber-950/40 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Goal Timeline</span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="mb-5">
+                <div className="flex justify-between items-end mb-2">
+                  <span className={`text-xs font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{currentWeight} kg now</span>
+                  <span className={`text-xs font-bold ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}>{goalWeight} kg goal</span>
+                </div>
+                <div className={`h-3 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-700"
+                    style={{ width: `${Math.min((currentWeight / goalWeight) * 100, 100)}%` }}
+                  />
+                </div>
+                <p className={`text-[9px] font-bold mt-1.5 ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>
+                  {totalToGain.toFixed(1)} kg remaining
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className={`rounded-2xl p-3 border text-center ${
+                  theme === 'dark' ? 'bg-slate-800/40 border-slate-700/50' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className={`text-lg font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{weeksToGoal}</div>
+                  <div className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Weeks</div>
+                </div>
+                <div className={`rounded-2xl p-3 border text-center ${
+                  theme === 'dark' ? 'bg-slate-800/40 border-slate-700/50' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className={`text-lg font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{Math.round(weeksToGoal / 4.3)}</div>
+                  <div className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Months</div>
+                </div>
+                <div className={`rounded-2xl p-3 border text-center ${
+                  theme === 'dark' ? 'bg-amber-950/30 border-amber-500/20' : 'bg-amber-50 border-amber-200'
+                }`}>
+                  <div className={`text-sm font-black ${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}`}>
+                    {goalDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </div>
+                  <div className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>ETA</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className={`rounded-[2rem] p-8 border text-center ${
+          theme === 'dark' ? 'bg-slate-900/30 border-slate-800' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <TrendingUp className={`w-8 h-8 mx-auto mb-3 ${theme === 'dark' ? 'text-slate-700' : 'text-slate-300'}`} />
+          <p className={`text-sm font-bold ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>Set up your profile above to see predictions</p>
+          <p className={`text-[10px] mt-1 ${theme === 'dark' ? 'text-slate-600' : 'text-slate-500'}`}>Enter your weight, goal, and TDEE to get started</p>
+        </div>
+      )}
+
+      {/* ── Weight Log ── */}
+      <div className={`rounded-[2.5rem] p-6 border shadow-xl backdrop-blur-xl ${
+        theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'
+      }`}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg ${theme === 'dark' ? 'bg-indigo-950/50 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+              <Activity className="w-4 h-4" />
+            </div>
+            <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Weight Log</span>
+          </div>
+          <button
+            onClick={() => setShowLogInput(v => !v)}
+            className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl transition-all active:scale-95 ${
+              showLogInput
+                ? theme === 'dark' ? 'bg-red-500/20 text-red-400' : 'bg-red-50 text-red-500'
+                : 'bg-indigo-600 text-white hover:bg-indigo-500'
+            }`}
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            {showLogInput ? 'Cancel' : 'Log Weight'}
+          </button>
+        </div>
+
+        {/* Log input */}
+        {showLogInput && (
+          <div className="flex items-center gap-3 mb-5">
+            <input
+              type="number" step="0.1"
+              value={newWeight}
+              onChange={e => setNewWeight(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && logWeight()}
+              placeholder="Your weight in kg"
+              autoFocus
+              className={`flex-1 border-2 rounded-2xl px-4 py-3 focus:outline-none transition-all font-bold text-sm ${
+                theme === 'dark'
+                  ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-700 focus:border-indigo-500'
+                  : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500'
+              }`}
+            />
+            <button
+              onClick={logWeight}
+              disabled={!newWeight}
+              className={`p-3 rounded-xl font-black transition-all active:scale-95 ${
+                newWeight ? 'bg-indigo-600 text-white hover:bg-indigo-500' : theme === 'dark' ? 'bg-slate-800 text-slate-600' : 'bg-slate-200 text-slate-400'
+              }`}
+            >
+              <CheckCircle2 className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+
+        {/* SVG Chart */}
+        {chartData.length >= 2 && (
+          <div className="mb-5">
+            <svg viewBox="0 0 300 90" className="w-full" preserveAspectRatio="none" style={{ height: '80px' }}>
+              <defs>
+                <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stopColor="#6366f1" stopOpacity="0.35" />
+                  <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <path
+                d={`M ${chartData.map((e, i) => `${(i / (chartData.length - 1)) * 300},${85 - ((e.weight - minW) / wRange) * 78}`).join(' L ')} L 300,90 L 0,90 Z`}
+                fill="url(#wGrad)"
+              />
+              <polyline
+                points={chartData.map((e, i) => `${(i / (chartData.length - 1)) * 300},${85 - ((e.weight - minW) / wRange) * 78}`).join(' ')}
+                fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              />
+              {chartData.map((e, i) => (
+                <circle
+                  key={i}
+                  cx={(i / (chartData.length - 1)) * 300}
+                  cy={85 - ((e.weight - minW) / wRange) * 78}
+                  r="4"
+                  fill={theme === 'dark' ? '#0f172a' : '#fff'}
+                  stroke="#6366f1" strokeWidth="2"
+                />
+              ))}
+            </svg>
+            <div className="flex justify-between mt-1">
+              <span className={`text-[9px] font-bold ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>
+                {new Date(chartData[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+              <span className={`text-[9px] font-bold ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>
+                {new Date(chartData[chartData.length - 1].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Entries list */}
+        {sortedLog.length === 0 ? (
+          <div className={`text-center py-8 ${theme === 'dark' ? 'text-slate-600' : 'text-slate-400'}`}>
+            <p className="text-sm font-bold">No weight entries yet</p>
+            <p className="text-[10px] mt-1">Tap "Log Weight" above to record your first entry</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sortedLog.slice(0, 10).map((entry, idx) => {
+              const daysFromStart = firstEntry
+                ? Math.round((new Date(entry.date) - new Date(firstEntry.date)) / (1000 * 60 * 60 * 24))
+                : 0;
+              const expectedAtDate = currentWeight > 0 ? currentWeight + gainPerDay * daysFromStart : null;
+              const isOnTrack = expectedAtDate !== null ? entry.weight >= expectedAtDate : null;
+
+              return (
+                <div key={entry.date} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                  theme === 'dark' ? 'bg-slate-800/30 border-slate-700/40' : 'bg-slate-50/80 border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                      idx === 0 ? 'bg-indigo-500 shadow-[0_0_6px_rgba(99,102,241,0.6)]' : theme === 'dark' ? 'bg-slate-700' : 'bg-slate-300'
+                    }`} />
+                    <div>
+                      <div className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{entry.weight} kg</div>
+                      <div className={`text-[9px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {new Date(entry.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isOnTrack !== null && (
+                      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg ${
+                        isOnTrack
+                          ? theme === 'dark' ? 'bg-emerald-950/50 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                          : theme === 'dark' ? 'bg-amber-950/50 text-amber-400'   : 'bg-amber-50 text-amber-600'
+                      }`}>
+                        {isOnTrack ? '↑ on track' : '↓ below'}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => deleteEntry(entry.date)}
+                      className={`p-1.5 transition-colors ${theme === 'dark' ? 'text-slate-700 hover:text-red-500' : 'text-slate-300 hover:text-red-500'}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Tip */}
+      <div className={`rounded-[2rem] p-5 border flex items-start gap-3 ${
+        theme === 'dark' ? 'bg-indigo-950/20 border-indigo-500/10' : 'bg-indigo-50/40 border-indigo-100'
+      }`}>
+        <Info className={`w-4 h-4 mt-0.5 shrink-0 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-500'}`} />
+        <p className={`text-xs font-medium leading-relaxed ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+          <span className="font-black">Weigh-in tip:</span> Step on the scale every morning after using the bathroom, before eating or drinking. This eliminates water weight variance and gives the most accurate trend data.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // TECHNICAL MONOSPACE SYSTEM KERNEL LOG DRAWER
 // ==========================================
 function KernelLogDrawer({ systemLogs, addSystemLog, theme }) {
@@ -1601,7 +2038,7 @@ function App() {
   const [customFoods, setCustomFoods] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin', 'squad', 'planner'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'add', 'history', 'admin', 'squad', 'planner', 'weight'
   const isViewMounted = useRef(false);
   useEffect(() => {
     if (isViewMounted.current) {
@@ -3190,6 +3627,15 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
             theme={theme} 
           />
         )}
+
+        {/* VIEW: WEIGHT TRACKER */}
+        {currentView === 'weight' && (
+          <WeightTrackerView
+            targetCalories={TARGET_CALORIES}
+            meals={meals}
+            theme={theme}
+          />
+        )}
       </main>
 
       {/* Floating AI Coach Button */}
@@ -3273,6 +3719,14 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
         }`}>
           <Settings className={`w-6 h-6 ${currentView === 'admin' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
           <span className="text-[9px] font-black tracking-widest uppercase">Admin</span>
+        </button>
+        <button onClick={() => setCurrentView('weight')} className={`flex flex-col items-center justify-center gap-1.5 transition-all ${
+          currentView === 'weight' 
+            ? theme === 'dark' ? 'text-indigo-400' : 'text-indigo-650 font-black' 
+            : 'text-slate-500 dark:text-slate-600'
+        }`}>
+          <TrendingUp className={`w-6 h-6 ${currentView === 'weight' ? 'scale-110 drop-shadow-[0_0_12px_rgba(79,70,229,0.4)]' : ''} transition-all`} />
+          <span className="text-[9px] font-black tracking-widest uppercase">Scale</span>
         </button>
       </nav>
     </div>
