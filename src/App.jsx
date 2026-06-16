@@ -1343,52 +1343,94 @@ Return ONLY a JSON object exactly matching this schema: { "calories": number, "p
 // WEIGHT GAIN TRACKER & PREDICTOR
 // ==========================================
 function WeightTrackerView({ targetCalories, meals, theme }) {
-  const [profile, setProfile] = useState(() => {
-    const saved = localStorage.getItem('wozan-weight-profile');
-    return saved ? JSON.parse(saved) : { currentWeight: '', goalWeight: '', tdee: '' };
-  });
-
-  const [weightLog, setWeightLog] = useState(() => {
-    const saved = localStorage.getItem('wozan-weight-log');
-    return saved ? JSON.parse(saved) : [];
-  });
-
+  const [profile, setProfile] = useState({ currentWeight: '', goalWeight: '', tdee: '' });
+  const [weightLog, setWeightLog] = useState([]);
   const [newWeight, setNewWeight] = useState('');
   const [showLogInput, setShowLogInput] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
-  const [profileDraft, setProfileDraft] = useState(profile);
+  const [profileDraft, setProfileDraft] = useState({ currentWeight: '', goalWeight: '', tdee: '' });
 
   useEffect(() => {
-    localStorage.setItem('wozan-weight-profile', JSON.stringify(profile));
-  }, [profile]);
+    fetchWeightData();
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('wozan-weight-log', JSON.stringify(weightLog));
-  }, [weightLog]);
+  const fetchWeightData = async () => {
+    const { data: pData } = await supabase.from('weight_profile').select('*').limit(1);
+    if (pData && pData.length > 0) {
+      const p = { currentWeight: pData[0].current_weight, goalWeight: pData[0].goal_weight, tdee: pData[0].tdee };
+      setProfile(p);
+      setProfileDraft(p);
+    }
+    const { data: logData } = await supabase.from('weight_logs').select('*').order('date', { ascending: false });
+    if (logData) {
+      setWeightLog(logData.map(l => ({ date: l.date, weight: l.weight })));
+    }
+  };
+
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+
+  const recentMeals = meals.filter(m => m.date >= sevenDaysAgoStr);
+  const dailyCals = {};
+  recentMeals.forEach(m => {
+    dailyCals[m.date] = (dailyCals[m.date] || 0) + (m.calories || 0);
+  });
+  
+  const uniqueDaysLogged = Object.keys(dailyCals).length;
+  const totalRecentCalories = Object.values(dailyCals).reduce((sum, val) => sum + val, 0);
+  const averageDailyCals = uniqueDaysLogged > 0 ? totalRecentCalories / uniqueDaysLogged : targetCalories;
 
   const currentWeight = parseFloat(profile.currentWeight) || 0;
   const goalWeight   = parseFloat(profile.goalWeight)   || 0;
   const tdee         = parseFloat(profile.tdee)         || 0;
-  const surplus      = tdee > 0 ? targetCalories - tdee : 0;
-  const gainPerDay   = surplus > 0 ? surplus / 7700 : 0;
+  const surplus      = tdee > 0 ? averageDailyCals - tdee : 0;
+  const gainPerDay   = surplus / 7700;
   const gainPerWeek  = gainPerDay * 7;
+  const gainPerMonth = gainPerDay * 30.4;
   const totalToGain  = goalWeight - currentWeight;
   const weeksToGoal  = gainPerWeek > 0 && totalToGain > 0 ? Math.ceil(totalToGain / gainPerWeek) : null;
   const goalDate     = weeksToGoal ? new Date(Date.now() + weeksToGoal * 7 * 24 * 60 * 60 * 1000) : null;
 
-  const logWeight = () => {
+  const logWeight = async () => {
     const val = parseFloat(newWeight);
     if (!val || val <= 0) return;
     const today = new Date().toISOString().split('T')[0];
+    
+    const existing = weightLog.find(e => e.date === today);
+    if (existing) {
+      await supabase.from('weight_logs').update({ weight: val }).eq('date', today);
+    } else {
+      await supabase.from('weight_logs').insert([{ date: today, weight: val }]);
+    }
+    
     const updated = [{ date: today, weight: val }, ...weightLog.filter(e => e.date !== today)];
     setWeightLog(updated.slice(0, 30));
     setNewWeight('');
     setShowLogInput(false);
   };
 
-  const deleteEntry = (date) => setWeightLog(weightLog.filter(e => e.date !== date));
+  const deleteEntry = async (date) => {
+    await supabase.from('weight_logs').delete().eq('date', date);
+    setWeightLog(weightLog.filter(e => e.date !== date));
+  };
 
-  const saveProfile = () => { setProfile(profileDraft); setEditingProfile(false); };
+  const saveProfile = async () => {
+    const { data: pData } = await supabase.from('weight_profile').select('id').limit(1);
+    const updates = {
+      current_weight: parseFloat(profileDraft.currentWeight) || 0,
+      goal_weight: parseFloat(profileDraft.goalWeight) || 0,
+      tdee: parseFloat(profileDraft.tdee) || 0,
+      updated_at: new Date().toISOString()
+    };
+    if (pData && pData.length > 0) {
+      await supabase.from('weight_profile').update(updates).eq('id', pData[0].id);
+    } else {
+      await supabase.from('weight_profile').insert([updates]);
+    }
+    setProfile(profileDraft);
+    setEditingProfile(false);
+  };
 
   const chartData = [...weightLog]
     .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -1521,32 +1563,32 @@ function WeightTrackerView({ targetCalories, meals, theme }) {
                 ? theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'
                 : theme === 'dark' ? 'text-red-400'     : 'text-red-700'
             }`}>
-              {surplus > 0 ? '+' : ''}{Math.round(surplus)} kcal/day
+              {surplus > 0 ? '+' : ''}{Math.round(surplus)} kcal/day <span className={`text-[10px] opacity-70 ml-1 font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>(Avg Intake: {Math.round(averageDailyCals)} kcal)</span>
             </span>
           </div>
 
           {/* Gain Cards */}
           <div className="grid grid-cols-2 gap-3">
-            {/* Per Day */}
+            {/* Per Week */}
             <div className={`rounded-[2rem] p-5 border shadow-xl backdrop-blur-xl relative overflow-hidden ${
               theme === 'dark' ? 'bg-slate-900/40 border-indigo-500/10' : 'bg-white/60 border-indigo-100 shadow-indigo-50'
             }`}>
               <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
-              <div className={`text-[9px] font-black uppercase tracking-widest mb-3 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-500'}`}>Per Day</div>
+              <div className={`text-[9px] font-black uppercase tracking-widest mb-3 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-500'}`}>Per Week</div>
               <div className={`text-2xl font-black leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                {gainPerDay > 0 ? `+${gainPerDay.toFixed(3)}` : gainPerDay < 0 ? gainPerDay.toFixed(3) : '0.000'}
+                {gainPerWeek > 0 ? `+${gainPerWeek.toFixed(2)}` : gainPerWeek < 0 ? gainPerWeek.toFixed(2) : '0.00'}
               </div>
               <div className={`text-[10px] font-bold mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>kg expected</div>
             </div>
 
-            {/* Per Week */}
+            {/* Per Month */}
             <div className={`rounded-[2rem] p-5 border shadow-xl backdrop-blur-xl relative overflow-hidden ${
               theme === 'dark' ? 'bg-slate-900/40 border-emerald-500/10' : 'bg-white/60 border-emerald-100 shadow-emerald-50'
             }`}>
               <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
-              <div className={`text-[9px] font-black uppercase tracking-widest mb-3 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>Per Week</div>
+              <div className={`text-[9px] font-black uppercase tracking-widest mb-3 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>Per Month</div>
               <div className={`text-2xl font-black leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                {gainPerWeek > 0 ? `+${gainPerWeek.toFixed(2)}` : gainPerWeek < 0 ? gainPerWeek.toFixed(2) : '0.00'}
+                {gainPerMonth > 0 ? `+${gainPerMonth.toFixed(2)}` : gainPerMonth < 0 ? gainPerMonth.toFixed(2) : '0.00'}
               </div>
               <div className={`text-[10px] font-bold mt-1 ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>kg expected</div>
             </div>
