@@ -378,6 +378,17 @@ function HistoryMealCard({ meal, todayString, date, theme, updateMealPortion, de
             </div>
           </div>
 
+          {meal.insight && (
+            <div className={`p-3 rounded-2xl border mb-5 text-xs italic ${
+              theme === 'dark' ? 'bg-indigo-950/20 border-indigo-500/20 text-indigo-300' : 'bg-indigo-50/50 border-indigo-200/50 text-indigo-700'
+            }`}>
+              <div className="flex gap-2">
+                <Zap className="w-4 h-4 shrink-0 mt-0.5 opacity-70" />
+                <span>{meal.insight}</span>
+              </div>
+            </div>
+          )}
+
           {date === todayString && (
             <div className={`flex items-center justify-between p-2.5 rounded-2xl border mb-5 ${
               theme === 'dark' ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200/60'
@@ -622,6 +633,70 @@ function CalorieProgressRing({ current, target, theme }) {
     </div>
   );
 }
+
+function MicronutrientDrawer({ stats, theme }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Default daily goals (estimations)
+  const SODIUM_TARGET = 2300; // mg
+  const POTASSIUM_TARGET = 3400; // mg
+  const IRON_TARGET = 18; // mg
+
+  const sodiumPct = Math.min((stats.sodium / SODIUM_TARGET) * 100, 100);
+  const potassiumPct = Math.min((stats.potassium / POTASSIUM_TARGET) * 100, 100);
+  const ironPct = Math.min((stats.iron / IRON_TARGET) * 100, 100);
+
+  return (
+    <div className={`rounded-2xl border overflow-hidden transition-all duration-300 shadow-sm ${
+      theme === 'dark' ? 'bg-slate-900/40 border-white/5' : 'bg-white/45 border-slate-200/50'
+    }`}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-4 outline-none active:bg-slate-500/10 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-indigo-500 opacity-80" />
+          <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+            Micronutrients Detail
+          </span>
+        </div>
+        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform duration-300 ${expanded ? 'rotate-90' : ''}`} />
+      </button>
+
+      <div className={`transition-all duration-300 overflow-hidden ${expanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
+        <div className="p-4 pt-0 space-y-4">
+          <div>
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-1.5">
+              <span className="text-slate-500">Sodium</span>
+              <span className={theme === 'dark' ? 'text-white' : 'text-slate-900'}>{stats.sodium || 0} / {SODIUM_TARGET}mg</span>
+            </div>
+            <div className="h-1.5 w-full bg-slate-800/20 rounded-full overflow-hidden">
+              <div className="h-full bg-rose-400 transition-all duration-1000" style={{ width: `${sodiumPct || 0}%` }} />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-1.5">
+              <span className="text-slate-500">Potassium</span>
+              <span className={theme === 'dark' ? 'text-white' : 'text-slate-900'}>{stats.potassium || 0} / {POTASSIUM_TARGET}mg</span>
+            </div>
+            <div className="h-1.5 w-full bg-slate-800/20 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-400 transition-all duration-1000" style={{ width: `${potassiumPct || 0}%` }} />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-1.5">
+              <span className="text-slate-500">Iron</span>
+              <span className={theme === 'dark' ? 'text-white' : 'text-slate-900'}>{stats.iron || 0} / {IRON_TARGET}mg</span>
+            </div>
+            <div className="h-1.5 w-full bg-slate-800/20 rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-400 transition-all duration-1000" style={{ width: `${ironPct || 0}%` }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
  
 function MacroCircle({ label, current, target, colorClass, strokeColor, theme }) {
   const percentage = target > 0 ? (current / target) * 100 : 0;
@@ -854,10 +929,10 @@ function AICoachDrawer({ isOpen, onClose, stats, targetCalories, streak, theme, 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading) return;
+  const sendMessage = async (overrideMessage = null) => {
+    const userMessage = typeof overrideMessage === 'string' ? overrideMessage : input.trim();
+    if (!userMessage || isLoading) return;
     
-    const userMessage = input.trim();
     setInput("");
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
@@ -945,6 +1020,19 @@ Current User Live Data:
         </div>
 
         <div className={`p-4 border-t ${theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+          <div className="flex gap-2 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+            <button
+              onClick={() => sendMessage("Suggest a custom recipe utilizing items from my available food library that perfectly fits within my remaining calorie and macro targets for the day.")}
+              className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                theme === 'dark' 
+                  ? 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30' 
+                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              Suggest meal for remaining macros
+            </button>
+          </div>
           <div className={`flex items-center gap-2 rounded-full p-2 border ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-300'}`}>
             <input 
               type="text"
@@ -2212,15 +2300,27 @@ Analyze the user's provided image of their food. Estimate the foods and weights 
 We already have a database of foods. Here is the list of exact food names currently available:
 ${JSON.stringify(availableNames)}
 
-Your task is to parse the visually identified foods into a JSON array of objects.
-For EACH food item, you must output an object with these keys:
-1. "food_name" (string): The name of the food item. If it maps closely to an item in the database, use that exact name. If new, invent a clear descriptive name.
-2. "matched_database_name" (string | null): The EXACT matching name from the database list if a close match is found. Otherwise, null.
-3. "weight_g" (number): The estimated weight in grams, or count if applicable.
-4. "is_new" (boolean): true if matched_database_name is null, false if it matches.
-5. "estimated_macros" (object | null): If "is_new" is true, provide estimated macros { calories, protein, carbs, fats, unit } per 100g/unit. If "is_new" is false, this must be null.
+Your task is to parse the visually identified foods into a JSON object.
+The JSON object must have the following structure:
+{
+  "items": [
+    {
+      "food_name": "string (name of the food item)",
+      "matched_database_name": "string | null (EXACT match from database or null)",
+      "weight_g": 100, // estimated weight in grams, or count
+      "is_new": true/false, // true if matched_database_name is null
+      "estimated_macros": { "calories": 0, "protein": 0, "carbs": 0, "fats": 0, "unit": "g" } // only if is_new is true
+    }
+  ],
+  "meal_insight": "A brief, one-sentence physiological insight regarding the meal's nutritional balance (e.g. blood sugar impact or muscle recovery efficiency).",
+  "meal_micros": {
+    "sodium_mg": 0, // estimated sodium in mg for the whole meal
+    "potassium_mg": 0, // estimated potassium in mg for the whole meal
+    "iron_mg": 0 // estimated iron in mg for the whole meal
+  }
+}
 
-Return ONLY the raw JSON array. Do not include markdown formatting.`;
+Return ONLY the raw JSON object. Do not include markdown formatting.`;
 
       let result = null;
       let attempts = 0;
@@ -2279,15 +2379,27 @@ Analyze the user's provided image of their food. Estimate the foods and weights 
 We already have a database of foods. Here is the list of exact food names currently available:
 ${JSON.stringify(availableNames)}
 
-Your task is to parse the visually identified foods into a JSON array of objects.
-For EACH food item, you must output an object with these keys:
-1. "food_name" (string): The name of the food item. If it maps closely to an item in the database, use that exact name. If new, invent a clear descriptive name.
-2. "matched_database_name" (string | null): The EXACT matching name from the database list if a close match is found. Otherwise, null.
-3. "weight_g" (number): The estimated weight in grams, or count if applicable.
-4. "is_new" (boolean): true if matched_database_name is null, false if it matches.
-5. "estimated_macros" (object | null): If "is_new" is true, provide estimated macros { calories, protein, carbs, fats, unit } per 100g/unit. If "is_new" is false, this must be null.
+Your task is to parse the visually identified foods into a JSON object.
+The JSON object must have the following structure:
+{
+  "items": [
+    {
+      "food_name": "string (name of the food item)",
+      "matched_database_name": "string | null (EXACT match from database or null)",
+      "weight_g": 100, // estimated weight in grams, or count
+      "is_new": true/false, // true if matched_database_name is null
+      "estimated_macros": { "calories": 0, "protein": 0, "carbs": 0, "fats": 0, "unit": "g" } // only if is_new is true
+    }
+  ],
+  "meal_insight": "A brief, one-sentence physiological insight regarding the meal's nutritional balance (e.g. blood sugar impact or muscle recovery efficiency).",
+  "meal_micros": {
+    "sodium_mg": 0, // estimated sodium in mg for the whole meal
+    "potassium_mg": 0, // estimated potassium in mg for the whole meal
+    "iron_mg": 0 // estimated iron in mg for the whole meal
+  }
+}
 
-Return ONLY the raw JSON array. Do not include markdown formatting.`;
+Return ONLY the raw JSON object. Do not include markdown formatting.`;
 
           const backupResult = await backupModel.generateContent([
              { inlineData: { data: base64Image, mimeType: "image/jpeg" } },
@@ -2470,23 +2582,27 @@ Analyze the user's text: "${textToParse}"
 We already have a database of foods. Here is the list of exact food names currently available:
 ${JSON.stringify(availableNames)}
 
-Your task is to parse the user's text into a JSON array of objects.
-For EACH food item mentioned in the text, you must output an object with these keys:
-1. "food_name" (string): The name of the food item. If it maps closely to an item in the available database foods list above, use that exact name. If it is a new food that is NOT in the database, invent a clear descriptive name (e.g. "Potato (100g)" or "Avocado (1 medium)").
-2. "matched_database_name" (string | null): The EXACT matching name from the available database foods list above if a close match is found. Otherwise, null. Ignore minor casing and extra space differences when matching.
-3. "weight_g" (number): The parsed weight in grams. (e.g., 1 cup of rice = 150g, 200g chicken = 200g). For naturally counted items like eggs or quantity multipliers, output weight_g as the count (e.g. 2 eggs -> weight_g = 2).
-4. "is_new" (boolean): true if matched_database_name is null (meaning this food doesn't exist in our database list), false if it matches an existing database food.
-5. "estimated_macros" (object | null): If "is_new" is true, provide standard estimated macros per 100g (or per 1 unit if it's naturally a unit/quantity item like "qty"). If "is_new" is false, this must be null.
-   Format of estimated_macros:
-   {
-     "calories": number (estimated calories per 100g or per 1 unit),
-     "protein": number (estimated protein in grams per 100g or per 1 unit),
-     "carbs": number (estimated carbs in grams per 100g or per 1 unit),
-     "fats": number (estimated fats in grams per 100g or per 1 unit),
-     "unit": "g" or "qty" or "cup" (default to "g" if measured in grams/weight, or "qty" if counted as single whole items)
-   }
+Your task is to parse the user's text into a JSON object.
+The JSON object must have the following structure:
+{
+  "items": [
+    {
+      "food_name": "string (name of the food item)",
+      "matched_database_name": "string | null (EXACT match from database or null)",
+      "weight_g": 100, // parsed weight in grams, or count
+      "is_new": true/false, // true if matched_database_name is null
+      "estimated_macros": { "calories": 0, "protein": 0, "carbs": 0, "fats": 0, "unit": "g" } // only if is_new is true
+    }
+  ],
+  "meal_insight": "A brief, one-sentence physiological insight regarding the meal's nutritional balance (e.g. blood sugar impact or muscle recovery efficiency).",
+  "meal_micros": {
+    "sodium_mg": 0, // estimated sodium in mg for the whole meal
+    "potassium_mg": 0, // estimated potassium in mg for the whole meal
+    "iron_mg": 0 // estimated iron in mg for the whole meal
+  }
+}
 
-Return ONLY the raw JSON array. Do not include markdown formatting or conversational text.`;
+Return ONLY the raw JSON object. Do not include markdown formatting or conversational text.`;
 
       
       const apiStart = performance.now();
@@ -2536,7 +2652,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
 
       let matchedItems = [];
 
-      for (const item of parsedData) {
+      const itemsToProcess = Array.isArray(parsedData) ? parsedData : (parsedData.items || []);
+
+      for (const item of itemsToProcess) {
         let matchedFood = null;
         
         // 1. Try to find match in database/static list using fuzzy match
@@ -2622,7 +2740,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       setParsedItems(matchedItems);
       
       if (matchedItems.length > 0) {
-        await logMeal(matchedItems);
+        await logMeal(matchedItems, parsedData.meal_insight, parsedData.meal_micros);
       } else {
         alert("Could not match or estimate any foods from your input.");
       }
@@ -2632,7 +2750,7 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
     }
   };
 
-  const logMeal = async (itemsToLog = null) => {
+  const logMeal = async (itemsToLog = null, insight = null, micros = null) => {
     // Combine parsed items from text and items from quick select
     const quickSelectItems = [...FOOD_DB, ...customFoods]
       .filter(f => quickQuantities[f.name] > 0)
@@ -2673,7 +2791,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
       fats: Math.round(totalF),
       items: finalItems,
       raw_text: inputText || (quickSelectItems.length > 0 ? "Quick Selection" : ""),
-      date: todayISO
+      date: todayISO,
+      insight: insight,
+      micronutrients: micros
     };
 
     
@@ -2858,6 +2978,9 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
     protein: todaysMeals.reduce((sum, m) => sum + Number(m.protein || 0), 0),
     carbs: todaysMeals.reduce((sum, m) => sum + Number(m.carbs || 0), 0),
     fats: todaysMeals.reduce((sum, m) => sum + Number(m.fats || 0), 0),
+    sodium: todaysMeals.reduce((sum, m) => sum + Number((m.micronutrients && m.micronutrients.sodium_mg) || 0), 0),
+    potassium: todaysMeals.reduce((sum, m) => sum + Number((m.micronutrients && m.micronutrients.potassium_mg) || 0), 0),
+    iron: todaysMeals.reduce((sum, m) => sum + Number((m.micronutrients && m.micronutrients.iron_mg) || 0), 0),
   };
 
   const progress = Math.min((stats.calories / TARGET_CALORIES) * 100, 100);
@@ -3195,6 +3318,8 @@ Return ONLY the raw JSON array. Do not include markdown formatting or conversati
                 theme={theme}
               />
             </div>
+
+            <MicronutrientDrawer stats={stats} theme={theme} />
 
             {/* Interactive Fluid Canvas for Hydration */}
             <HydrationTracker intake={waterIntake} setIntake={setWaterIntake} theme={theme} />
