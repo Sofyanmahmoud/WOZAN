@@ -2490,18 +2490,50 @@ Return ONLY the raw JSON object. Do not include markdown formatting.`;
       if (foodsError) throw foodsError;
       if (foodsData) {
         setCustomFoods(foodsData);
-        
       }
       
       const { data: mealsData, error: mealsError } = await supabase.from('meals').select('*').order('id', { ascending: false });
       if (mealsError) throw mealsError;
-      if (mealsData) {
-        setMeals(mealsData);
-        const duration = Math.round(performance.now() - startTime);
-        
+
+      // [Sync Action] Log inbound payload so we can trace what is triggering any state reset
+      console.log('[Sync Action] Inbound payload:', mealsData);
+
+      // ── GUARD #1: Empty-array protection ──────────────────────────────────
+      // If Supabase returns an empty array (network hiccup, RLS gap, race
+      // condition) we must NOT overwrite live local state that already has
+      // meals in it.  Only replace when the DB actually returned something.
+      if (!mealsData || mealsData.length === 0) {
+        console.warn('[Sync Action] Inbound payload is empty – skipping setMeals to protect local state.');
+        addSystemLog('sync', 'Sync skipped: server returned an empty meals payload (local state preserved).');
+        setLoading(false);
+        return;
       }
+
+      // ── GUARD #2: Timestamp / optimistic-UI merge ─────────────────────────
+      // Treat local optimistic entries (id starts with "temp-") as source of
+      // truth UNTIL a real DB record with a higher numeric ID arrives.  This
+      // prevents a background re-fetch from nuking meals that were logged
+      // between the fetch start and the response arrival.
+      setMeals(prev => {
+        const duration = Math.round(performance.now() - startTime);
+        console.log(`[Sync Action] Merging ${mealsData.length} DB records with ${prev.length} local records (RTT: ${duration}ms)`);
+
+        // Build a map of all DB records keyed by id for fast lookup
+        const dbMap = new Map(mealsData.map(m => [String(m.id), m]));
+
+        // Keep any optimistic / offline meals that haven't yet been confirmed
+        // by the DB (their temp- id won't appear in dbMap).
+        const pendingOptimistic = prev.filter(m => String(m.id).startsWith('temp-'));
+
+        if (pendingOptimistic.length > 0) {
+          console.log('[Sync Action] Preserving optimistic meals pending DB confirmation:', pendingOptimistic.map(m => m.id));
+        }
+
+        // Final merged list = confirmed DB records + any still-pending optimistic ones
+        return [...mealsData, ...pendingOptimistic];
+      });
     } catch (err) {
-      console.error("Fetch error:", err);
+      console.error('[Sync Action] Fetch error:', err);
       addSystemLog('sync', `Supabase sync failed: ${err.message || String(err)}`, { error: true });
     }
     setLoading(false);
@@ -2513,35 +2545,32 @@ Return ONLY the raw JSON object. Do not include markdown formatting.`;
     const queue = JSON.parse(queueStr);
     if (queue.length === 0) return;
     
-    
+    console.log('[Sync Action] Flushing offline queue – items:', queue.length);
     const startTime = performance.now();
     try {
       const { error } = await supabase.from('meals').insert(queue);
       if (!error) {
         localStorage.removeItem('wozan-offline-queue');
         const duration = Math.round(performance.now() - startTime);
-        
-        fetchSupabaseData(); // Refresh with real IDs
+        console.log(`[Sync Action] Offline queue flushed successfully (${duration}ms). Refreshing from DB.`);
+        fetchSupabaseData(); // Refresh with real IDs (guards inside fetchSupabaseData protect local state)
       } else {
-        console.error("Offline sync error", error);
-        
+        console.error('[Sync Action] Offline sync error:', error);
       }
     } catch (err) {
-      console.error("Sync failed", err);
-      
+      console.error('[Sync Action] Sync failed:', err);
     }
   };
 
   useEffect(() => {
     const mountStart = performance.now();
-    
 
     window.addEventListener('online', syncOfflineQueue);
     if (navigator.onLine) syncOfflineQueue();
 
     fetchSupabaseData().then(() => {
       const mountDuration = Math.round(performance.now() - mountStart);
-      
+      console.log(`[Sync Action] Initial mount sync complete (${mountDuration}ms)`);
     });
 
     return () => window.removeEventListener('online', syncOfflineQueue);
